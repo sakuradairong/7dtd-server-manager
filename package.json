@@ -1,0 +1,71 @@
+{
+  "name": "7dtd-server-manager",
+  "version": "1.0.0",
+  "description": "A desktop management tool for 7 Days to Die dedicated servers via Telnet/RCON",
+  "main": "dist/main/main.js",
+  "scripts": {
+    "build": "tsc && npm run copy-assets",
+    "copy-assets": "cp src/renderer/index.html dist/renderer/ && cp src/renderer/styles.css dist/renderer/ && cp src/renderer/app.ts dist/renderer/app.js",
+    "watch": "tsc --watch",
+    "start": "npm run build && electron dist/main/main.js",
+    "test": "jest",
+    "lint": "eslint src tests --ext .ts",
+    "dist": "npm run build && electron-builder",
+    "dist:win": "npm run build && electron-builder --win",
+    "dist:mac": "npm run build && electron-builder --mac",
+    "dist:linux": "npm run build && electron-builder --linux"
+  },
+  "build": {
+    "appId": "com.example.7dtd-server-manager",
+    "productName": "7 Days to Die Server Manager",
+    "directories": {
+      "output": "release",
+      "buildResources": "assets"
+    },
+    "files": [
+      "dist/**/*",
+      "assets/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.games"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage",
+      "category": "Game",
+      "desktopName": "7 Days to Die Server Manager",
+      "synopsis": "Manage 7 Days to Die dedicated servers",
+      "description": "A desktop management tool for 7 Days to Die dedicated servers via Telnet/RCON"
+    }
+  },
+  "keywords": [
+    "7dtd",
+    "7-days-to-die",
+    "server-manager",
+    "telnet",
+    "rcon",
+    "electron"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/jest": "^29.5.12",
+    "@types/node": "^20.11.0",
+    "electron": "^30.0.0",
+    "electron-builder": "^26.15.3",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.2",
+    "typescript": "^5.4.5"
+  },
+  "dependencies": {
+    "fast-xml-parser": "^5.9.3"
+  }
+}

@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>7 Days to Die 服务器管理工具</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="app-header">
+        <h1>7 Days to Die 服务器管理工具</h1>
+        <div class="connection-status">
+          <span id="status-dot" class="status-dot disconnected"></span>
+          <span id="status-text">未连接</span>
+        </div>
+      </header>
+
+      <main class="app-main">
+        <section class="panel connection-panel">
+          <h2>连接设置</h2>
+          <div class="form-row">
+            <label for="profile-select">配置文件</label>
+            <select id="profile-select">
+              <option value="">-- 手动输入 --</option>
+            </select>
+          </div>
+          <div class="profile-actions">
+            <button type="button" id="save-profile">保存配置</button>
+            <button type="button" id="delete-profile" disabled>删除配置</button>
+          </div>
+          <form id="connection-form">
+            <div class="form-row">
+              <label for="host">服务器地址</label>
+              <input type="text" id="host" value="127.0.0.1" required />
+            </div>
+            <div class="form-row">
+              <label for="port">Telnet 端口</label>
+              <input type="number" id="port" value="8081" required />
+            </div>
+            <div class="form-row">
+              <label for="password">密码</label>
+              <input type="password" id="password" value="" required />
+            </div>
+            <div class="form-actions">
+              <button type="submit" id="connect-btn">连接</button>
+              <button type="button" id="disconnect-btn" disabled>断开</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="panel actions-panel">
+          <h2>常用操作</h2>
+          <div class="action-grid">
+            <button class="action-btn" data-action="saveworld" title="保存世界">
+              💾 保存世界
+            </button>
+            <button
+              class="action-btn"
+              data-action="listplayers"
+              title="列出玩家"
+            >
+              👥 玩家列表
+            </button>
+            <button class="action-btn" data-action="killall" title="清除实体">
+              ☠️ 清除实体
+            </button>
+            <button
+              class="action-btn"
+              data-action="spawnairdrop"
+              title="召唤空投"
+            >
+              📦 召唤空投
+            </button>
+            <button
+              class="action-btn"
+              data-action="spawnwanderinghorde"
+              title="尸群"
+            >
+              🧟 游荡尸群
+            </button>
+            <button
+              class="action-btn"
+              data-action="shutdown"
+              title="关闭服务器"
+              data-confirm="确定要关闭服务器吗？"
+            >
+              🛑 关闭服务器
+            </button>
+          </div>
+        </section>
+
+        <section class="panel command-panel">
+          <h2>自定义命令</h2>
+          <form id="command-form">
+            <input
+              type="text"
+              id="command-input"
+              placeholder="输入 Telnet 命令，例如: say 欢迎!"
+              autocomplete="off"
+            />
+            <button type="submit">执行</button>
+          </form>
+        </section>
+
+        <section class="panel players-panel">
+          <h2>在线玩家</h2>
+          <div class="players-toolbar">
+            <button id="refresh-players">刷新</button>
+          </div>
+          <table id="players-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>名称</th>
+                <th>等级</th>
+                <th>血量</th>
+                <th>位置</th>
+                <th>Ping</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="empty-row">
+                <td colspan="7">未获取玩家数据</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section class="panel config-panel">
+          <h2>服务器配置</h2>
+          <div class="config-toolbar">
+            <button id="select-config-file">选择 serverconfig.xml</button>
+            <button id="save-config" disabled>保存配置</button>
+          </div>
+          <div id="config-file-path" class="config-file-path">未选择文件</div>
+          <form id="config-form" class="config-form"></form>
+        </section>
+
+        <section class="panel log-panel">
+          <h2>日志输出</h2>
+          <div class="log-toolbar">
+            <button id="clear-log">清空</button>
+            <button id="open-log-dir">打开日志目录</button>
+          </div>
+          <pre id="log-output"></pre>
+        </section>
+      </main>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
