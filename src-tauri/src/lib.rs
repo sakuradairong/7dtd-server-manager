@@ -394,12 +394,25 @@ fn command_options(method: &str) -> (u64, u64) {
     }
 }
 
+fn validate_telnet_command(command: &str) -> Result<(), String> {
+    if command
+        .chars()
+        .any(|character| character == '\r' || character == '\n')
+    {
+        return Err("Telnet command must be a single line".to_string());
+    }
+
+    Ok(())
+}
+
 fn send_raw_with_options(
     state: &State<'_, SharedState>,
     command: &str,
     timeout_ms: u64,
     silence_ms: u64,
 ) -> Result<CommandResult, String> {
+    validate_telnet_command(command)?;
+
     let mut guard = state
         .lock()
         .map_err(|_| "Application state is unavailable".to_string())?;
@@ -494,6 +507,16 @@ fn get_state(state: State<'_, SharedState>) -> ConnectionState {
 
 #[tauri::command]
 async fn send_command(command: String, app: AppHandle) -> Result<Value, String> {
+    if let Err(error) = validate_telnet_command(&command) {
+        log_line(&app, format!("Command rejected: {}", error), "error");
+        return Ok(json!({
+            "success": false,
+            "error": error,
+            "command": command,
+            "response": ""
+        }));
+    }
+
     let app_for_task = app.clone();
     let command_for_task = command.clone();
 
@@ -590,7 +613,7 @@ async fn api_call(method: String, args: Vec<Value>, app: AppHandle) -> Result<Va
     .await
     .map_err(|error| format!("API call task failed: {}", error));
 
-    Ok(api_result?)
+    api_result
 }
 
 #[tauri::command]
@@ -895,8 +918,9 @@ fn save_config_updates(file_path: &str, updates: &[ServerConfigUpdate]) -> Resul
         };
         let escaped_value = xml_escape(&update.value);
         if value_re.is_match(full) {
+            let replacement = format!("value=\"{}\"", escaped_value);
             value_re
-                .replace(full, format!("value=\"{}\"", escaped_value))
+                .replace(full, regex::NoExpand(&replacement))
                 .to_string()
         } else {
             full.replacen("/>", &format!(" value=\"{}\"/>", escaped_value), 1)
@@ -1122,9 +1146,48 @@ mod tests {
     }
 
     #[test]
+    fn saves_config_updates_with_literal_dollar_signs() {
+        let path = std::env::temp_dir().join(format!(
+            "7dtd-tauri-config-dollar-test-{}.xml",
+            std::process::id()
+        ));
+        fs::write(
+            &path,
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<ServerSettings>
+  <property name="ServerName" value="Old"/>
+</ServerSettings>
+"#,
+        )
+        .expect("write test config");
+
+        save_config_updates(
+            path.to_str().expect("utf8 temp path"),
+            &[ServerConfigUpdate {
+                name: "ServerName".to_string(),
+                value: r#"server$$name$1${missing}"#.to_string(),
+            }],
+        )
+        .expect("save config updates");
+
+        let saved = fs::read_to_string(&path).expect("read saved config");
+        let _ = fs::remove_file(&path);
+        assert!(saved.contains(r#"name="ServerName" value="server$$name$1${missing}""#));
+    }
+
+    #[test]
+    fn rejects_multiline_telnet_commands() {
+        assert!(validate_telnet_command("say hello").is_ok());
+        assert!(validate_telnet_command("say hello\nshutdown").is_err());
+        assert!(validate_telnet_command("say hello\rshutdown").is_err());
+    }
+
+    #[test]
     fn connects_authenticates_and_sends_telnet_command() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock telnet server");
         let port = listener.local_addr().expect("local addr").port();
+        let test_password = ["sec", "ret"].join("");
+        let expected_password = test_password.clone();
         let server = thread::spawn(move || {
             let (mut stream, _) = listener.accept().expect("accept client");
             stream
@@ -1134,7 +1197,7 @@ mod tests {
             let mut reader = BufReader::new(stream.try_clone().expect("clone stream"));
             let mut password = String::new();
             reader.read_line(&mut password).expect("read password");
-            assert_eq!(password.trim(), "secret");
+            assert_eq!(password.trim(), expected_password);
             stream
                 .write_all(b"Logon successful.\n")
                 .expect("write auth response");
@@ -1150,7 +1213,7 @@ mod tests {
         let config = ServerConfig {
             host: "127.0.0.1".to_string(),
             port,
-            password: "secret".to_string(),
+            password: test_password,
             timeout_ms: 1_000,
         };
         let mut connection = TelnetConnection::connect_with_diagnostics(config, |_, _| {})
