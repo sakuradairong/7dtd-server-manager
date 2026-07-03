@@ -7,148 +7,570 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <div class="app">
-      <header class="app-header">
-        <h1>7 Days to Die 服务器管理工具</h1>
-        <div class="connection-status">
-          <span id="status-dot" class="status-dot disconnected"></span>
-          <span id="status-text">未连接</span>
+    <div class="app-shell">
+      <!-- 顶部状态栏 -->
+      <header class="topbar">
+        <div class="topbar-brand">
+          <div class="brand-mark">7D</div>
+          <div class="brand-text">
+            <div class="brand-title">7DTD 服务器管理器</div>
+            <div class="brand-subtitle">Tauri Edition · Telnet Console</div>
+          </div>
+        </div>
+
+        <div class="topbar-center">
+          <div class="status-pill" id="connection-pill">
+            <span id="status-dot" class="status-dot disconnected"></span>
+            <span id="status-text">未连接</span>
+          </div>
+          <div class="server-info" id="server-info">
+            <span class="info-label">服务器</span>
+            <span class="info-value" id="server-address">--</span>
+          </div>
+        </div>
+
+        <div class="topbar-actions">
+          <button type="button" id="disconnect-btn" class="btn-danger" disabled>
+            断开连接
+          </button>
         </div>
       </header>
 
-      <main class="app-main">
-        <section class="panel connection-panel">
-          <h2>连接设置</h2>
-          <div class="form-row">
-            <label for="profile-select">配置文件</label>
-            <select id="profile-select">
-              <option value="">-- 手动输入 --</option>
-            </select>
-          </div>
-          <div class="profile-actions">
-            <button type="button" id="save-profile">保存配置</button>
-            <button type="button" id="delete-profile" disabled>删除配置</button>
-          </div>
-          <form id="connection-form">
-            <div class="form-row">
-              <label for="host">服务器地址</label>
-              <input type="text" id="host" value="127.0.0.1" required />
+      <!-- 主体：左侧图标导航 + 内容区 -->
+      <div class="main-area">
+        <nav class="icon-sidebar" id="icon-sidebar" role="tablist">
+          <button
+            id="nav-console"
+            class="nav-item active"
+            data-tab="console"
+            role="tab"
+            aria-selected="true"
+            aria-controls="tab-console"
+            title="控制台"
+            aria-label="控制台"
+            tabindex="0"
+          >
+            <span class="nav-icon">🎮</span>
+            <span class="nav-label">控制台</span>
+          </button>
+          <button
+            id="nav-server"
+            class="nav-item"
+            data-tab="server"
+            role="tab"
+            aria-selected="false"
+            aria-controls="tab-server"
+            title="服务器"
+            aria-label="服务器"
+            tabindex="-1"
+          >
+            <span class="nav-icon">⚙️</span>
+            <span class="nav-label">服务器</span>
+          </button>
+          <button
+            id="nav-players"
+            class="nav-item"
+            data-tab="players"
+            role="tab"
+            aria-selected="false"
+            aria-controls="tab-players"
+            title="玩家"
+            aria-label="玩家"
+            tabindex="-1"
+          >
+            <span class="nav-icon">👥</span>
+            <span class="nav-label">玩家</span>
+          </button>
+          <button
+            id="nav-config"
+            class="nav-item"
+            data-tab="config"
+            role="tab"
+            aria-selected="false"
+            aria-controls="tab-config"
+            title="配置"
+            aria-label="配置"
+            tabindex="-1"
+          >
+            <span class="nav-icon">⚒️</span>
+            <span class="nav-label">配置</span>
+          </button>
+          <button
+            id="nav-commands"
+            class="nav-item"
+            data-tab="commands"
+            role="tab"
+            aria-selected="false"
+            aria-controls="tab-commands"
+            title="命令中心"
+            aria-label="命令中心"
+            tabindex="-1"
+          >
+            <span class="nav-icon">🧰</span>
+            <span class="nav-label">命令</span>
+          </button>
+          <button
+            id="nav-logs"
+            class="nav-item"
+            data-tab="logs"
+            role="tab"
+            aria-selected="false"
+            aria-controls="tab-logs"
+            title="日志"
+            aria-label="日志"
+            tabindex="-1"
+          >
+            <span class="nav-icon">📜</span>
+            <span class="nav-label">日志</span>
+          </button>
+        </nav>
+
+        <main class="content-area">
+          <!-- 控制台标签 -->
+          <section
+            class="tab-panel active"
+            id="tab-console"
+            role="tabpanel"
+            aria-labelledby="nav-console"
+          >
+            <div class="dashboard-grid">
+              <div class="card hero-card">
+                <div class="hero-content">
+                  <div class="hero-badge">控制台</div>
+                  <h2>欢迎来到 7DTD 服务器控制台</h2>
+                  <p>连接 Telnet 后即可执行命令、管理玩家和修改配置。</p>
+                </div>
+                <div class="hero-stats">
+                  <div class="stat">
+                    <span class="stat-label">协议</span>
+                    <span class="stat-value">Telnet</span>
+                  </div>
+                  <div class="stat">
+                    <span class="stat-label">运行时</span>
+                    <span class="stat-value">Tauri</span>
+                  </div>
+                  <div class="stat">
+                    <span class="stat-label">配置</span>
+                    <span class="stat-value">本地</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card connection-card">
+                <div class="card-header">
+                  <span class="card-icon">🔌</span>
+                  <div>
+                    <h3>快速连接</h3>
+                    <p>选择配置文件或直接输入服务器信息</p>
+                  </div>
+                </div>
+
+                <div class="form-row">
+                  <label for="profile-select">配置文件</label>
+                  <select id="profile-select">
+                    <option value="">-- 手动输入 --</option>
+                  </select>
+                </div>
+                <div class="profile-actions">
+                  <button type="button" id="save-profile">保存</button>
+                  <button type="button" id="delete-profile" disabled>
+                    删除
+                  </button>
+                </div>
+
+                <form id="connection-form">
+                  <div class="form-row">
+                    <label for="host">服务器地址</label>
+                    <input type="text" id="host" value="127.0.0.1" required />
+                  </div>
+                  <div class="form-row">
+                    <label for="port">Telnet 端口</label>
+                    <input type="number" id="port" value="8081" required />
+                  </div>
+                  <div class="form-row">
+                    <label for="password">密码</label>
+                    <div class="password-field">
+                      <input type="password" id="password" value="" required />
+                      <button
+                        type="button"
+                        id="toggle-password"
+                        aria-label="显示或隐藏密码"
+                      >
+                        显示
+                      </button>
+                    </div>
+                  </div>
+                  <button
+                    type="submit"
+                    id="connect-btn"
+                    class="btn-primary btn-full"
+                  >
+                    连接服务器
+                  </button>
+                </form>
+              </div>
+
+              <div class="card diagnostics-card">
+                <div class="card-header">
+                  <span class="card-icon">📡</span>
+                  <div>
+                    <h3>连接诊断</h3>
+                    <p>连接失败时可复制排查</p>
+                  </div>
+                </div>
+                <div
+                  id="connection-diagnostics"
+                  class="connection-diagnostics"
+                  aria-live="polite"
+                >
+                  等待连接操作...
+                </div>
+                <button
+                  type="button"
+                  id="copy-diagnostics"
+                  class="btn-secondary btn-full"
+                >
+                  复制诊断
+                </button>
+              </div>
+
+              <div class="card command-card wide">
+                <div class="card-header">
+                  <span class="card-icon">⌨️</span>
+                  <div>
+                    <h3>自定义命令</h3>
+                    <p>直接发送任意 Telnet 命令，支持 ↑ / ↓ 历史</p>
+                  </div>
+                </div>
+                <form id="command-form" class="command-form">
+                  <input
+                    type="text"
+                    id="command-input"
+                    placeholder="输入 Telnet 命令，例如: say 欢迎!"
+                    autocomplete="off"
+                  />
+                  <button type="submit" class="btn-primary">执行</button>
+                </form>
+              </div>
+
+              <div class="card quick-actions-card wide">
+                <div class="card-header">
+                  <span class="card-icon">🚀</span>
+                  <div>
+                    <h3>常用操作</h3>
+                    <p>连接后启用</p>
+                  </div>
+                </div>
+                <div class="action-grid">
+                  <button class="action-btn" data-action="saveworld">
+                    <span class="action-icon">💾</span>
+                    <span>保存世界</span>
+                  </button>
+                  <button class="action-btn" data-action="listplayers">
+                    <span class="action-icon">👥</span>
+                    <span>玩家列表</span>
+                  </button>
+                  <button class="action-btn" data-action="killall">
+                    <span class="action-icon">☠️</span>
+                    <span>清除实体</span>
+                  </button>
+                  <button class="action-btn" data-action="spawnairdrop">
+                    <span class="action-icon">📦</span>
+                    <span>召唤空投</span>
+                  </button>
+                  <button class="action-btn" data-action="spawnwanderinghorde">
+                    <span class="action-icon">🧟</span>
+                    <span>游荡尸群</span>
+                  </button>
+                  <button
+                    class="action-btn danger"
+                    data-action="shutdown"
+                    data-confirm="确定要关闭服务器吗？"
+                  >
+                    <span class="action-icon">🛑</span>
+                    <span>关闭服务器</span>
+                  </button>
+                </div>
+              </div>
             </div>
-            <div class="form-row">
-              <label for="port">Telnet 端口</label>
-              <input type="number" id="port" value="8081" required />
+          </section>
+
+          <!-- 服务器标签 -->
+          <section
+            class="tab-panel"
+            id="tab-server"
+            role="tabpanel"
+            aria-labelledby="nav-server"
+          >
+            <div class="section-header">
+              <div class="section-badge">⚙️ 服务器管理</div>
+              <h2>世界、环境与权限</h2>
             </div>
-            <div class="form-row">
-              <label for="password">密码</label>
-              <input type="password" id="password" value="" required />
+
+            <div class="dashboard-grid">
+              <div class="card category-card wide">
+                <div class="card-header">
+                  <span class="card-icon">🌍</span>
+                  <div>
+                    <h3>世界管理</h3>
+                    <p>保存、清理、事件生成与地图操作</p>
+                  </div>
+                </div>
+                <div class="action-grid compact">
+                  <button class="cmd-btn" data-action="saveworld">
+                    💾 保存世界
+                  </button>
+                  <button class="cmd-btn" data-action="killall">
+                    ☠️ 清除实体
+                  </button>
+                  <button class="cmd-btn" data-action="spawnairdrop">
+                    📦 召唤空投
+                  </button>
+                  <button class="cmd-btn" data-action="spawnsupplycrate">
+                    🎁 补给箱
+                  </button>
+                  <button class="cmd-btn" data-action="spawnwanderinghorde">
+                    🧟 游荡尸群
+                  </button>
+                  <button
+                    class="cmd-btn"
+                    data-action="spawnscouts"
+                    data-prompt="玩家名（可选）"
+                  >
+                    👁️ 侦察尸群
+                  </button>
+                  <button class="cmd-btn" data-action="rendermap">
+                    🗺️ 渲染地图
+                  </button>
+                  <button class="cmd-btn" data-action="generatemap">
+                    🌍 生成地图
+                  </button>
+                </div>
+              </div>
+
+              <div class="card category-card">
+                <div class="card-header">
+                  <span class="card-icon">🌤️</span>
+                  <div>
+                    <h3>环境信息</h3>
+                    <p>时间与运行状态</p>
+                  </div>
+                </div>
+                <div class="action-grid compact">
+                  <button class="cmd-btn" data-action="gettime">
+                    🕐 当前时间
+                  </button>
+                  <button
+                    class="cmd-btn"
+                    data-action="settime"
+                    data-prompt="时间（day/night/时间值）"
+                  >
+                    🌅 设置时间
+                  </button>
+                  <button
+                    class="cmd-btn"
+                    data-action="weather"
+                    data-prompt="天气设置"
+                  >
+                    🌦️ 天气
+                  </button>
+                  <button class="cmd-btn" data-action="mem">🧠 内存使用</button>
+                  <button class="cmd-btn" data-action="version">
+                    ℹ️ 版本信息
+                  </button>
+                  <button
+                    class="cmd-btn"
+                    data-action="help"
+                    data-prompt="命令名（可选）"
+                  >
+                    ❓ 命令帮助
+                  </button>
+                </div>
+              </div>
+
+              <div class="card category-card">
+                <div class="card-header">
+                  <span class="card-icon">🛡️</span>
+                  <div>
+                    <h3>权限管理</h3>
+                    <p>玩家与权限列表</p>
+                  </div>
+                </div>
+                <div class="action-grid compact">
+                  <button class="cmd-btn" data-action="listplayerids">
+                    🆔 玩家 ID 列表
+                  </button>
+                  <button class="cmd-btn" data-action="listknownplayers">
+                    📋 已知玩家
+                  </button>
+                  <button
+                    class="cmd-btn"
+                    data-action="kickall"
+                    data-confirm="确定要踢出所有玩家吗？"
+                  >
+                    🥾 踢出全部
+                  </button>
+                  <button class="cmd-btn" data-action="admin" data-args="list">
+                    🛡️ 管理员列表
+                  </button>
+                  <button
+                    class="cmd-btn"
+                    data-action="whitelist"
+                    data-args="list"
+                  >
+                    ✅ 白名单列表
+                  </button>
+                  <button class="cmd-btn" data-action="ban" data-args="list">
+                    🚫 封禁列表
+                  </button>
+                </div>
+              </div>
             </div>
-            <div class="form-actions">
-              <button type="submit" id="connect-btn">连接</button>
-              <button type="button" id="disconnect-btn" disabled>断开</button>
+          </section>
+
+          <!-- 玩家标签 -->
+          <section
+            class="tab-panel"
+            id="tab-players"
+            role="tabpanel"
+            aria-labelledby="nav-players"
+          >
+            <div class="section-header">
+              <div class="section-badge">👥 在线玩家</div>
+              <h2>玩家管理</h2>
+              <button id="refresh-players" class="btn-primary">刷新玩家</button>
             </div>
-          </form>
-        </section>
 
-        <section class="panel actions-panel">
-          <h2>常用操作</h2>
-          <div class="action-grid">
-            <button class="action-btn" data-action="saveworld" title="保存世界">
-              💾 保存世界
-            </button>
-            <button
-              class="action-btn"
-              data-action="listplayers"
-              title="列出玩家"
-            >
-              👥 玩家列表
-            </button>
-            <button class="action-btn" data-action="killall" title="清除实体">
-              ☠️ 清除实体
-            </button>
-            <button
-              class="action-btn"
-              data-action="spawnairdrop"
-              title="召唤空投"
-            >
-              📦 召唤空投
-            </button>
-            <button
-              class="action-btn"
-              data-action="spawnwanderinghorde"
-              title="尸群"
-            >
-              🧟 游荡尸群
-            </button>
-            <button
-              class="action-btn"
-              data-action="shutdown"
-              title="关闭服务器"
-              data-confirm="确定要关闭服务器吗？"
-            >
-              🛑 关闭服务器
-            </button>
-          </div>
-        </section>
+            <div class="card">
+              <div class="table-wrap">
+                <table id="players-table">
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>名称</th>
+                      <th>等级</th>
+                      <th>血量</th>
+                      <th>位置</th>
+                      <th>Ping</th>
+                      <th>操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr class="empty-row">
+                      <td colspan="7">未获取玩家数据</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
 
-        <section class="panel command-panel">
-          <h2>自定义命令</h2>
-          <form id="command-form">
-            <input
-              type="text"
-              id="command-input"
-              placeholder="输入 Telnet 命令，例如: say 欢迎!"
-              autocomplete="off"
-            />
-            <button type="submit">执行</button>
-          </form>
-        </section>
+          <!-- 配置标签 -->
+          <section
+            class="tab-panel"
+            id="tab-config"
+            role="tabpanel"
+            aria-labelledby="nav-config"
+          >
+            <div class="section-header">
+              <div class="section-badge">⚒️ 服务器配置</div>
+              <h2>编辑 serverconfig.xml</h2>
+            </div>
 
-        <section class="panel players-panel">
-          <h2>在线玩家</h2>
-          <div class="players-toolbar">
-            <button id="refresh-players">刷新</button>
-          </div>
-          <table id="players-table">
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>名称</th>
-                <th>等级</th>
-                <th>血量</th>
-                <th>位置</th>
-                <th>Ping</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr class="empty-row">
-                <td colspan="7">未获取玩家数据</td>
-              </tr>
-            </tbody>
-          </table>
-        </section>
+            <div class="card">
+              <div class="config-toolbar">
+                <button id="select-config-file" class="btn-primary">
+                  选择配置文件
+                </button>
+                <button id="save-config" class="btn-success" disabled>
+                  保存配置
+                </button>
+              </div>
+              <div id="config-file-path" class="config-file-path">
+                未选择文件
+              </div>
+              <form id="config-form" class="config-form"></form>
+            </div>
+          </section>
 
-        <section class="panel config-panel">
-          <h2>服务器配置</h2>
-          <div class="config-toolbar">
-            <button id="select-config-file">选择 serverconfig.xml</button>
-            <button id="save-config" disabled>保存配置</button>
-          </div>
-          <div id="config-file-path" class="config-file-path">未选择文件</div>
-          <form id="config-form" class="config-form"></form>
-        </section>
+          <!-- 命令中心标签 -->
+          <section
+            class="tab-panel"
+            id="tab-commands"
+            role="tabpanel"
+            aria-labelledby="nav-commands"
+          >
+            <div class="section-header">
+              <div class="section-badge">🧰 命令中心</div>
+              <h2>全部 Telnet 命令</h2>
+              <span id="command-count" class="command-count"></span>
+            </div>
 
-        <section class="panel log-panel">
-          <h2>日志输出</h2>
-          <div class="log-toolbar">
-            <button id="clear-log">清空</button>
-            <button id="open-log-dir">打开日志目录</button>
-          </div>
-          <pre id="log-output"></pre>
-        </section>
-      </main>
+            <div class="command-center">
+              <div class="card command-detail-card">
+                <div class="card-header">
+                  <span class="card-icon">🧰</span>
+                  <div>
+                    <h3>命令详情</h3>
+                    <p>选择命令后查看用法并执行</p>
+                  </div>
+                </div>
+                <div class="command-filter-row">
+                  <input
+                    type="search"
+                    id="command-search"
+                    placeholder="搜索命令名称或用法..."
+                    autocomplete="off"
+                  />
+                  <select id="command-category">
+                    <option value="">全部分类</option>
+                  </select>
+                </div>
+                <div id="command-detail" class="command-detail">
+                  <div class="command-detail-empty">请从右侧选择一个命令</div>
+                </div>
+              </div>
+
+              <div class="card command-list-card">
+                <div class="card-header">
+                  <span class="card-icon">📋</span>
+                  <div>
+                    <h3>命令列表</h3>
+                    <p>点击选择，灰色表示需要连接</p>
+                  </div>
+                </div>
+                <div id="command-list" class="command-list"></div>
+              </div>
+            </div>
+          </section>
+
+          <!-- 日志标签 -->
+          <section
+            class="tab-panel"
+            id="tab-logs"
+            role="tabpanel"
+            aria-labelledby="nav-logs"
+          >
+            <div class="section-header">
+              <div class="section-badge">📜 日志输出</div>
+              <h2>实时日志</h2>
+              <div class="log-toolbar">
+                <button id="clear-log" class="btn-secondary">清空</button>
+                <button id="copy-log" class="btn-secondary">复制日志</button>
+                <button id="open-log-dir" class="btn-secondary">
+                  打开日志目录
+                </button>
+              </div>
+            </div>
+
+            <div class="card log-card">
+              <pre id="log-output"></pre>
+            </div>
+          </section>
+        </main>
+      </div>
     </div>
 
-    <script src="app.js"></script>
+    <script type="module" src="app.js"></script>
   </body>
 </html>

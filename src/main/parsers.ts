@@ -5,11 +5,17 @@ import type {
 	GamePreference,
 } from "../common/types";
 
+const LOG_LINE_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\s+\d+\.\d+\s+(INF|WRN|ERR|EXC|DBG)\s+/;
+
+function isLogLine(line: string): boolean {
+	return LOG_LINE_PATTERN.test(line);
+}
+
 function normalizeLines(response: string): string[] {
 	const result: string[] = [];
 	for (const rawLine of response.split("\n")) {
 		const line = rawLine.trim();
-		if (line.length > 0) {
+		if (line.length > 0 && !isLogLine(line)) {
 			result.push(line);
 		}
 	}
@@ -208,7 +214,9 @@ export function parseGamePreferences(response: string): GamePreference[] {
 export function parseTime(
 	response: string,
 ): { day: number; time: string } | null {
-	const match = response.match(/Day\s+(\d+),\s*(\d{1,2}:\d{2})/i);
+	const lines = normalizeLines(response);
+	const text = lines.join(" ");
+	const match = text.match(/Day\s+(\d+),\s*(\d{1,2}:\d{2})/i);
 	if (!match) return null;
 
 	return {
@@ -223,7 +231,12 @@ export function parseVersion(
 	const lines = normalizeLines(response);
 	if (lines.length === 0) return null;
 
-	const gameVersion = lines[0];
+	let gameVersion = lines[0];
+	const gameVersionPrefix = "Game version:";
+	if (gameVersion.toLowerCase().startsWith(gameVersionPrefix.toLowerCase())) {
+		gameVersion = gameVersion.slice(gameVersionPrefix.length).trim();
+	}
+
 	const mods: string[] = [];
 
 	for (let index = 1; index < lines.length; index += 1) {

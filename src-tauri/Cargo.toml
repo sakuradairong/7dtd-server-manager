@@ -1,0 +1,21 @@
+[package]
+name = "sevendtd-server-manager"
+version = "1.0.0"
+description = "A desktop management tool for 7 Days to Die dedicated servers via Telnet/RCON"
+authors = [""]
+edition = "2021"
+
+[lib]
+name = "sevendtd_server_manager_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+opener = "0.7"
+regex = "1"
+rfd = "0.15"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = [] }

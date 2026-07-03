@@ -1,17 +1,100 @@
-import type { ElectronApi } from "./preload";
+import { TELNET_COMMANDS } from "./telnet-commands.gen.js";
+
+type TauriUnlisten = () => void;
+type TauriInvoke = <T>(
+	command: string,
+	args?: Record<string, unknown>,
+) => Promise<T>;
+
+interface TauriEvent<T> {
+	payload: T;
+}
+
+interface TauriGlobal {
+	core: {
+		invoke: TauriInvoke;
+	};
+	event: {
+		listen: <T>(
+			event: string,
+			handler: (event: TauriEvent<T>) => void,
+		) => Promise<TauriUnlisten>;
+	};
+}
 
 declare global {
 	interface Window {
-		electronAPI: ElectronApi;
+		__TAURI__?: TauriGlobal;
 	}
 }
 
-const api = window.electronAPI;
+function invokeTauri<T>(
+	command: string,
+	args?: Record<string, unknown>,
+): Promise<T> {
+	if (!window.__TAURI__) {
+		return Promise.reject(new Error("No desktop runtime bridge is available"));
+	}
+	return window.__TAURI__.core.invoke<T>(command, args);
+}
+
+function createTauriApi(): DesktopApi {
+	return {
+		connect: (config) => invokeTauri("connect", { config }),
+		disconnect: () => invokeTauri("disconnect"),
+		getState: () => invokeTauri("get_state"),
+		sendCommand: (command) => invokeTauri("send_command", { command }),
+		apiCall: (method, args) => invokeTauri("api_call", { method, args }),
+		getLogDirectory: () => invokeTauri("get_log_directory"),
+		openLogDirectory: () => invokeTauri("open_log_directory"),
+		selectServerConfigFile: () => invokeTauri("select_server_config_file"),
+		loadServerConfig: (filePath) =>
+			invokeTauri("load_server_config", { filePath }),
+		saveServerConfig: (filePath, updates) =>
+			invokeTauri("save_server_config", { filePath, updates }),
+		getProfiles: () => invokeTauri("get_profiles"),
+		saveProfile: (profile) => invokeTauri("save_profile", { profile }),
+		deleteProfile: (id) => invokeTauri("delete_profile", { id }),
+		getLastUsedProfile: () => invokeTauri("get_last_used_profile"),
+		setLastUsedProfile: (id) => invokeTauri("set_last_used_profile", { id }),
+		onServerEvent: (callback) => {
+			const unlistenPromise = window.__TAURI__?.event
+				.listen<{ type: string; [key: string]: unknown }>(
+					"server-event",
+					(event) => callback(event.payload),
+				)
+				.catch((error) => {
+					console.error("Failed to listen for server events", error);
+				});
+
+			return () => {
+				void unlistenPromise?.then((unlisten) => unlisten?.());
+			};
+		},
+	};
+}
+
+const api = createTauriApi();
+
+function getRuntimeName(): string {
+	return window.__TAURI__ ? "Tauri" : "Unknown";
+}
 
 const connectionForm = document.getElementById(
 	"connection-form",
 ) as HTMLFormElement;
 const commandForm = document.getElementById("command-form") as HTMLFormElement;
+const commandInput = document.getElementById(
+	"command-input",
+) as HTMLInputElement;
+const passwordInput = document.getElementById("password") as HTMLInputElement;
+const togglePasswordBtn = document.getElementById(
+	"toggle-password",
+) as HTMLButtonElement;
+const copyDiagnosticsBtn = document.getElementById(
+	"copy-diagnostics",
+) as HTMLButtonElement;
+const copyLogBtn = document.getElementById("copy-log") as HTMLButtonElement;
 const connectBtn = document.getElementById("connect-btn") as HTMLButtonElement;
 const disconnectBtn = document.getElementById(
 	"disconnect-btn",
@@ -29,8 +112,24 @@ const clearLogBtn = document.getElementById("clear-log") as HTMLButtonElement;
 const openLogDirBtn = document.getElementById(
 	"open-log-dir",
 ) as HTMLButtonElement;
+const connectionDiagnostics = document.getElementById(
+	"connection-diagnostics",
+) as HTMLDivElement;
+const actionButtons = Array.from(
+	document.querySelectorAll<HTMLButtonElement>(".action-btn, .cmd-btn"),
+);
+const iconSidebar = document.getElementById("icon-sidebar") as HTMLElement;
+const tabPanels = Array.from(document.querySelectorAll(".tab-panel"));
+const navItems = Array.from(document.querySelectorAll(".nav-item"));
+const serverAddressEl = document.getElementById(
+	"server-address",
+) as HTMLSpanElement;
 
 let isConnected = false;
+const connectionDiagnosticMessages: string[] = [];
+const seenConnectionDiagnostics = new Set<string>();
+const commandHistory: string[] = [];
+let commandHistoryIndex = 0;
 
 function log(
 	message: string,
@@ -41,6 +140,65 @@ function log(
 	entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
 	logOutput.appendChild(entry);
 	logOutput.scrollTop = logOutput.scrollHeight;
+}
+
+function appendConnectionDiagnostic(
+	message: string,
+	options: { dedupe?: boolean } = {},
+): boolean {
+	if (options.dedupe && seenConnectionDiagnostics.has(message)) {
+		return false;
+	}
+	if (options.dedupe) {
+		seenConnectionDiagnostics.add(message);
+	}
+
+	connectionDiagnosticMessages.push(
+		`[${new Date().toLocaleTimeString()}] ${message}`,
+	);
+	if (connectionDiagnosticMessages.length > 20) {
+		connectionDiagnosticMessages.shift();
+	}
+	connectionDiagnostics.textContent = connectionDiagnosticMessages.join("\n");
+	return true;
+}
+
+function resetConnectionDiagnostics(message: string): void {
+	connectionDiagnosticMessages.length = 0;
+	seenConnectionDiagnostics.clear();
+	appendConnectionDiagnostic(message);
+}
+
+function logConnectionDiagnostics(
+	diagnostics: readonly ConnectionDiagnostic[] | undefined,
+): void {
+	if (!diagnostics || diagnostics.length === 0) return;
+	for (const diagnostic of diagnostics) {
+		const message = `连接诊断[${diagnostic.phase}]: ${diagnostic.message}`;
+		if (appendConnectionDiagnostic(message, { dedupe: true })) {
+			log(message, "event");
+		}
+	}
+}
+
+log(`客户端已启动，运行时: ${getRuntimeName()}`, "event");
+resetConnectionDiagnostics(`客户端已启动，运行时: ${getRuntimeName()}`);
+
+async function copyTextToClipboard(text: string): Promise<boolean> {
+	if (!text.trim()) return false;
+	try {
+		await navigator.clipboard.writeText(text);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+function getLogText(): string {
+	return Array.from(logOutput.querySelectorAll(".log-entry"))
+		.map((entry) => entry.textContent ?? "")
+		.filter(Boolean)
+		.join("\n");
 }
 
 function clearLog(): void {
@@ -55,6 +213,38 @@ function clearPlayersTable(): void {
 	}
 }
 
+function updateCommandControls(enabled: boolean): void {
+	commandInput.disabled = !enabled;
+	refreshPlayersBtn.disabled = !enabled;
+	for (const button of actionButtons) {
+		button.disabled = !enabled;
+	}
+	renderCommandList();
+}
+
+function switchTab(tabId: string): void {
+	for (const panel of tabPanels) {
+		const isActive = panel.id === `tab-${tabId}`;
+		panel.classList.toggle("active", isActive);
+	}
+	for (const item of navItems) {
+		const isActive = item.getAttribute("data-tab") === tabId;
+		item.classList.toggle("active", isActive);
+		item.setAttribute("aria-selected", String(isActive));
+		item.setAttribute("tabindex", isActive ? "0" : "-1");
+	}
+}
+
+iconSidebar.addEventListener("click", (event) => {
+	const target = (event.target as HTMLElement).closest(
+		".nav-item",
+	) as HTMLElement | null;
+	if (!target) return;
+	const tabId = target.getAttribute("data-tab");
+	if (!tabId) return;
+	switchTab(tabId);
+});
+
 function updateStatus(state: {
 	connected: boolean;
 	authenticated: boolean;
@@ -68,7 +258,7 @@ function updateStatus(state: {
 		isConnected = true;
 	} else if (state.connected) {
 		statusDot.classList.add("connected");
-		statusText.textContent = "已连接（未认证）";
+		statusText.textContent = "已连接";
 		isConnected = true;
 	} else {
 		statusDot.classList.add("disconnected");
@@ -80,36 +270,66 @@ function updateStatus(state: {
 
 	connectBtn.disabled = isConnected;
 	disconnectBtn.disabled = !isConnected;
+	updateCommandControls(isConnected);
 }
 
 connectionForm.addEventListener("submit", async (event) => {
 	event.preventDefault();
+
+	const originalConnectText = connectBtn.textContent ?? "连接";
+	connectBtn.disabled = true;
+	disconnectBtn.disabled = true;
+	connectBtn.textContent = "连接中...";
 
 	const host = (document.getElementById("host") as HTMLInputElement).value;
 	const port = parseInt(
 		(document.getElementById("port") as HTMLInputElement).value,
 		10,
 	);
-	const password = (document.getElementById("password") as HTMLInputElement)
-		.value;
+	const password = passwordInput.value;
 
 	log(`正在连接到 ${host}:${port}...`, "event");
+	resetConnectionDiagnostics(`正在连接到 ${host}:${port}...`);
 
-	const result = await api.connect({ host, port, password, timeoutMs: 10000 });
+	try {
+		const result = await api.connect({
+			host,
+			port,
+			password,
+			timeoutMs: 10000,
+		});
+		logConnectionDiagnostics(result.diagnostics);
 
-	if (result.success) {
-		log("连接成功", "event");
-		updateStatus(
-			result.state as { connected: boolean; authenticated: boolean },
-		);
-		await refreshPlayers();
-	} else {
-		log(`连接失败: ${result.error}`, "error");
+		if (result.success) {
+			log("连接成功", "event");
+			appendConnectionDiagnostic("连接成功");
+			updateStatus(
+				result.state as { connected: boolean; authenticated: boolean },
+			);
+			serverAddressEl.textContent = `${host}:${port}`;
+			await refreshPlayers();
+		} else {
+			log(`连接失败: ${result.error}`, "error");
+			appendConnectionDiagnostic(`连接失败: ${result.error}`);
+			updateStatus({
+				connected: false,
+				authenticated: false,
+				lastError: result.error,
+			});
+		}
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		log(`连接调用异常: ${message}`, "error");
+		appendConnectionDiagnostic(`连接调用异常: ${message}`);
 		updateStatus({
 			connected: false,
 			authenticated: false,
-			lastError: result.error,
+			lastError: message,
 		});
+	} finally {
+		connectBtn.textContent = originalConnectText;
+		connectBtn.disabled = isConnected;
+		disconnectBtn.disabled = !isConnected;
 	}
 });
 
@@ -117,19 +337,25 @@ disconnectBtn.addEventListener("click", async () => {
 	await api.disconnect();
 	log("已断开连接", "event");
 	updateStatus({ connected: false, authenticated: false });
+	serverAddressEl.textContent = "--";
 	clearPlayersTable();
 });
 
 commandForm.addEventListener("submit", async (event) => {
 	event.preventDefault();
 
-	const input = document.getElementById("command-input") as HTMLInputElement;
-	const command = input.value.trim();
+	const command = commandInput.value.trim();
 
 	if (!command) return;
 
+	if (commandHistory[commandHistory.length - 1] !== command) {
+		commandHistory.push(command);
+		if (commandHistory.length > 50) commandHistory.shift();
+	}
+	commandHistoryIndex = commandHistory.length;
+
 	log(`> ${command}`, "command");
-	input.value = "";
+	commandInput.value = "";
 
 	const result = await api.sendCommand(command);
 
@@ -142,17 +368,31 @@ commandForm.addEventListener("submit", async (event) => {
 	}
 });
 
-document.querySelectorAll(".action-btn").forEach((button) => {
+document.querySelectorAll(".action-btn, .cmd-btn").forEach((button) => {
 	button.addEventListener("click", async () => {
-		const action = (button as HTMLButtonElement).dataset.action!;
-		const confirmMessage = (button as HTMLButtonElement).dataset.confirm;
+		const btn = button as HTMLButtonElement;
+		const action = btn.dataset.action!;
+		const confirmMessage = btn.dataset.confirm;
+		const fixedArgs = btn.dataset.args;
+		const promptLabel = btn.dataset.prompt;
 
 		if (confirmMessage && !window.confirm(confirmMessage)) {
 			return;
 		}
 
-		log(`> ${action}`, "command");
-		const result = await api.sendCommand(action);
+		let command = action;
+		if (fixedArgs) {
+			command = `${action} ${fixedArgs}`;
+		} else if (promptLabel) {
+			const value = window.prompt(promptLabel);
+			if (value === null) return;
+			command = value.trim()
+				? `${action} "${escapeArgument(value.trim())}"`
+				: action;
+		}
+
+		log(`> ${command}`, "command");
+		const result = await api.sendCommand(command);
 
 		if (result.success) {
 			log(result.response || "命令执行成功", "response");
@@ -165,9 +405,50 @@ document.querySelectorAll(".action-btn").forEach((button) => {
 	});
 });
 
+commandInput.addEventListener("keydown", (event) => {
+	if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+	if (commandHistory.length === 0) return;
+
+	event.preventDefault();
+	if (event.key === "ArrowUp") {
+		commandHistoryIndex = Math.max(0, commandHistoryIndex - 1);
+	} else {
+		commandHistoryIndex = Math.min(
+			commandHistory.length,
+			commandHistoryIndex + 1,
+		);
+	}
+	commandInput.value = commandHistory[commandHistoryIndex] ?? "";
+	commandInput.setSelectionRange(
+		commandInput.value.length,
+		commandInput.value.length,
+	);
+});
+
 refreshPlayersBtn.addEventListener("click", refreshPlayers);
 
+togglePasswordBtn.addEventListener("click", () => {
+	const isHidden = passwordInput.type === "password";
+	passwordInput.type = isHidden ? "text" : "password";
+	togglePasswordBtn.textContent = isHidden ? "隐藏" : "显示";
+});
+
+copyDiagnosticsBtn.addEventListener("click", async () => {
+	const copied = await copyTextToClipboard(
+		connectionDiagnostics.textContent ?? "",
+	);
+	log(
+		copied ? "连接诊断已复制" : "连接诊断为空或复制失败",
+		copied ? "event" : "error",
+	);
+});
+
 clearLogBtn.addEventListener("click", clearLog);
+
+copyLogBtn.addEventListener("click", async () => {
+	const copied = await copyTextToClipboard(getLogText());
+	log(copied ? "日志已复制" : "日志为空或复制失败", copied ? "event" : "error");
+});
 
 openLogDirBtn.addEventListener("click", async () => {
 	try {
@@ -416,6 +697,16 @@ api.onServerEvent((event) => {
 		case "line":
 			log(`< ${event.line}`, "response");
 			break;
+		case "diagnostic": {
+			const message = `连接诊断[${String(event.phase)}]: ${String(event.message)}`;
+			if (appendConnectionDiagnostic(message, { dedupe: true })) {
+				log(message, "event");
+			}
+			break;
+		}
+		default:
+			log(`未知服务器事件: ${JSON.stringify(event)}`, "info");
+			break;
 	}
 });
 
@@ -496,7 +787,7 @@ function getConnectionFormValues(): {
 			(document.getElementById("port") as HTMLInputElement).value,
 			10,
 		),
-		password: (document.getElementById("password") as HTMLInputElement).value,
+		password: passwordInput.value,
 	};
 }
 
@@ -575,6 +866,395 @@ deleteProfileBtn.addEventListener("click", async () => {
 	}
 });
 
+// --- Command Center ---
+
+const COMMAND_CATEGORIES: Record<string, string> = {
+	admin: "玩家管理",
+	ban: "玩家管理",
+	kick: "玩家管理",
+	kickall: "玩家管理",
+	kill: "玩家管理",
+	killall: "玩家管理",
+	listplayerids: "玩家管理",
+	listplayers: "玩家管理",
+	listknownplayers: "玩家管理",
+	whitelist: "玩家管理",
+	teleportplayer: "玩家管理",
+	sayplayer: "通信",
+	showinventory: "玩家管理",
+	playerOwnedEntities: "玩家管理",
+	pplist: "玩家管理",
+	printpinfo: "玩家管理",
+	reply: "通信",
+	commandpermission: "权限管理",
+	permissionsallowed: "权限管理",
+	overridemaxplayercount: "权限管理",
+	createwebuser: "权限管理",
+	webpermission: "权限管理",
+	webtokens: "权限管理",
+	saveworld: "世界管理",
+	shutdown: "世界管理",
+	chunkreset: "世界管理",
+	regionreset: "世界管理",
+	rendermap: "世界管理",
+	generatemap: "世界管理",
+	visitmap: "世界管理",
+	agemap: "世界管理",
+	expiryinfo: "世界管理",
+	repairchunkdensity: "世界管理",
+	chunkcache: "世界管理",
+	chunkobserver: "世界管理",
+	showchunkdata: "世界管理",
+	resetallstats: "世界管理",
+	exportcurrentconfigs: "世界管理",
+	exportprefab: "世界管理",
+	smoothpoi: "世界管理",
+	smoothworldall: "世界管理",
+	prefab: "世界管理",
+	prefabeditor: "世界管理",
+	prefabupdater: "世界管理",
+	placeblockrotations: "世界管理",
+	placeblockshapes: "世界管理",
+	pois: "世界管理",
+	poiwaypoints: "世界管理",
+	tppoi: "世界管理",
+	teleportpoirelative: "世界管理",
+	trees: "世界管理",
+	mapdata: "世界管理",
+	listents: "实体控制",
+	spawnentity: "实体控制",
+	spawnentityat: "实体控制",
+	spawnwanderinghorde: "实体控制",
+	spawnscouts: "实体控制",
+	spawnairdrop: "实体控制",
+	spawnsupplycrate: "实体控制",
+	shownexthordetime: "实体控制",
+	bents: "实体控制",
+	sdcs: "实体控制",
+	lock: "AI 与 Director",
+	buff: "玩家状态",
+	buffplayer: "玩家状态",
+	debuff: "玩家状态",
+	debuffplayer: "玩家状态",
+	giveself: "玩家状态",
+	giveselfxp: "玩家状态",
+	givexp: "玩家状态",
+	give: "玩家状态",
+	givequest: "玩家状态",
+	removequest: "玩家状态",
+	gamestage: "玩家状态",
+	starve: "玩家状态",
+	thirsty: "玩家状态",
+	exhausted: "玩家状态",
+	sleep: "玩家状态",
+	spectator: "玩家状态",
+	automove: "玩家状态",
+	calibrate: "玩家状态",
+	fov: "视觉与渲染",
+	camera: "视觉与渲染",
+	creativemenu: "玩家状态",
+	debugmenu: "调试与性能",
+	debugpanels: "调试与性能",
+	debugshot: "调试与性能",
+	show: "视觉与渲染",
+	showalbedo: "视觉与渲染",
+	shownormals: "视觉与渲染",
+	showspecular: "视觉与渲染",
+	showswings: "视觉与渲染",
+	showhits: "视觉与渲染",
+	showtriggers: "视觉与渲染",
+	togglelm: "视觉与渲染",
+	ScreenEffect: "视觉与渲染",
+	spawnscreen: "玩家状态",
+	switchview: "视觉与渲染",
+	squarespiral: "玩家状态",
+	playervisitmap: "世界管理",
+	getgamepref: "游戏设置",
+	setgamepref: "游戏设置",
+	getgamestat: "游戏设置",
+	setgamestat: "游戏设置",
+	gettime: "游戏设置",
+	settime: "游戏设置",
+	settempunit: "游戏设置",
+	setwatervalue: "游戏设置",
+	settargetfps: "游戏设置",
+	getoptions: "游戏设置",
+	getlogpath: "游戏设置",
+	config: "游戏设置",
+	cvar: "游戏设置",
+	setcvar: "游戏设置",
+	weather: "游戏设置",
+	weathersurvival: "游戏设置",
+	newweathersurvival: "游戏设置",
+	debugweather: "游戏设置",
+	spectrum: "游戏设置",
+	ForceEventDate: "游戏设置",
+	mem: "调试与性能",
+	memcl: "调试与性能",
+	listthreads: "调试与性能",
+	loggamestate: "调试与性能",
+	loglevel: "调试与性能",
+	clear: "调试与性能",
+	memprofile: "调试与性能",
+	profiler: "调试与性能",
+	profiling: "调试与性能",
+	profilenetwork: "调试与性能",
+	meshdatamanager: "调试与性能",
+	exception: "调试与性能",
+	testloop: "调试与性能",
+	unittest: "调试与性能",
+	SystemInfo: "调试与性能",
+	occlusion: "调试与性能",
+	testoccreport: "调试与性能",
+	openiddebug: "调试与性能",
+	say: "通信",
+	help: "通信",
+	version: "通信",
+	versionui: "通信",
+	listitems: "查询与列表",
+	listdlc: "查询与列表",
+	listgameobjects: "查询与列表",
+	listpes: "查询与列表",
+	ai: "AI 与 Director",
+	aiddebug: "AI 与 Director",
+	utilityai: "AI 与 Director",
+	actiondelay: "AI 与 Director",
+	adjustmarkup: "AI 与 Director",
+	dialog: "AI 与 Director",
+	sleeper: "AI 与 Director",
+	enablerendering: "视觉与渲染",
+	showClouds: "视觉与渲染",
+	lights: "视觉与渲染",
+	gfx: "视觉与渲染",
+	graph: "视觉与渲染",
+	networkclient: "网络",
+	networkserver: "网络",
+	audio: "音频",
+	dms: "音频",
+	mumblepositionalaudio: "音频",
+	dynamicmesh: "动态网格",
+	dynamicmeshdebug: "动态网格",
+	dynamicproperties: "动态网格",
+	ReloadSCore: "SCore / Mod",
+	weaponsway: "SCore / Mod",
+	gears: "SCore / Mod",
+	quartz: "SCore / Mod",
+	fireclear: "SCore / Mod",
+	bsclearcache: "BeyondStorage",
+	bshelp: "BeyondStorage",
+	bsreloadconfig: "BeyondStorage",
+	bssetconfig: "BeyondStorage",
+	bsshowconfig: "BeyondStorage",
+	discord: "Discord / Twitch",
+	twitch: "Discord / Twitch",
+	twitchadmin: "Discord / Twitch",
+	AdminSpeed: "其他",
+	AccDecay: "其他",
+	challenges: "其他",
+	damagereset: "其他",
+	decomgr: "其他",
+	invalidatecaches: "其他",
+	maivd: "其他",
+	na: "其他",
+	pirs: "其他",
+	plc: "其他",
+	stab: "其他",
+	tcs: "其他",
+	tls: "其他",
+	traderarea: "其他",
+	transformdebug: "其他",
+	floatingorigin: "其他",
+	xui: "其他",
+	uioptions: "其他",
+	reloadentityclasses: "其他",
+	reloadlog: "其他",
+	wsmats: "其他",
+	search: "查询与列表",
+	output: "查询与列表",
+	outputdetailed: "查询与列表",
+	nwzbotblockfill: "NaiwaziBot",
+	nwzbotremoveentity: "NaiwaziBot",
+	nwzbot_test: "NaiwaziBot",
+};
+
+const CATEGORY_LABELS: Record<string, string> = {
+	"玩家管理": "玩家管理",
+	"权限管理": "权限管理",
+	"世界管理": "世界管理",
+	"实体控制": "实体控制",
+	"玩家状态": "玩家状态",
+	"游戏设置": "游戏设置",
+	"调试与性能": "调试与性能",
+	"通信": "通信",
+	"查询与列表": "查询与列表",
+	"AI 与 Director": "AI 与 Director",
+	"视觉与渲染": "视觉与渲染",
+	"音频": "音频",
+	"网络": "网络",
+	"动态网格": "动态网格",
+	"SCore / Mod": "SCore / Mod",
+	"BeyondStorage": "BeyondStorage",
+	"Discord / Twitch": "Discord / Twitch",
+	"NaiwaziBot": "NaiwaziBot",
+	"其他": "其他",
+};
+
+const commandSearchInput = document.getElementById(
+	"command-search",
+) as HTMLInputElement;
+const commandCategorySelect = document.getElementById(
+	"command-category",
+) as HTMLSelectElement;
+const commandListEl = document.getElementById(
+	"command-list",
+) as HTMLDivElement;
+const commandDetailEl = document.getElementById(
+	"command-detail",
+) as HTMLDivElement;
+const commandCountEl = document.getElementById(
+	"command-count",
+) as HTMLSpanElement;
+
+let selectedCommandName: string | null = null;
+const commandEntries = Object.entries(TELNET_COMMANDS).map(([name, meta]) => ({
+	name,
+	usage: meta.usage,
+	minLevel: meta.minLevel,
+	category: COMMAND_CATEGORIES[name] ?? "其他",
+}));
+
+function getCategoryDisplayName(category: string): string {
+	return CATEGORY_LABELS[category] ?? category;
+}
+
+function populateCommandCategories(): void {
+	const categories = Array.from(
+		new Set(commandEntries.map((entry) => entry.category)),
+	).sort();
+
+	while (commandCategorySelect.options.length > 1) {
+		commandCategorySelect.remove(1);
+	}
+
+	for (const category of categories) {
+		const option = document.createElement("option");
+		option.value = category;
+		option.textContent = getCategoryDisplayName(category);
+		commandCategorySelect.appendChild(option);
+	}
+}
+
+function renderCommandList(): void {
+	const search = commandSearchInput.value.trim().toLowerCase();
+	const category = commandCategorySelect.value;
+
+	const filtered = commandEntries.filter((entry) => {
+		const matchesSearch =
+			entry.name.toLowerCase().includes(search) ||
+			entry.usage.toLowerCase().includes(search);
+		const matchesCategory = !category || entry.category === category;
+		return matchesSearch && matchesCategory;
+	});
+
+	commandListEl.innerHTML = "";
+	commandCountEl.textContent = `${filtered.length} / ${commandEntries.length}`;
+
+	if (filtered.length === 0) {
+		const empty = document.createElement("div");
+		empty.className = "command-list-empty";
+		empty.textContent = "没有匹配的命令";
+		commandListEl.appendChild(empty);
+		return;
+	}
+
+	for (const entry of filtered) {
+		const button = document.createElement("button");
+		button.type = "button";
+		button.className = "command-list-item";
+		button.textContent = entry.name;
+		button.title = entry.usage;
+		button.disabled = !isConnected;
+		if (entry.name === selectedCommandName) {
+			button.classList.add("active");
+		}
+		button.addEventListener("click", () => selectCommand(entry.name));
+		commandListEl.appendChild(button);
+	}
+}
+
+function selectCommand(name: string): void {
+	selectedCommandName = name;
+	const entry = commandEntries.find((e) => e.name === name);
+	if (!entry) return;
+
+	commandDetailEl.innerHTML = "";
+
+	const nameEl = document.createElement("div");
+	nameEl.className = "command-detail-name";
+	nameEl.textContent = entry.name;
+
+	const usageEl = document.createElement("div");
+	usageEl.className = "command-detail-usage";
+	usageEl.textContent = entry.usage;
+
+	const metaEl = document.createElement("div");
+	metaEl.className = "command-detail-meta";
+
+	const categoryEl = document.createElement("span");
+	categoryEl.textContent = getCategoryDisplayName(entry.category);
+
+	const levelEl = document.createElement("span");
+	levelEl.textContent = `权限等级: ${entry.minLevel}`;
+
+	metaEl.appendChild(categoryEl);
+	metaEl.appendChild(levelEl);
+
+	const argRow = document.createElement("div");
+	argRow.className = "command-arg-row";
+
+	const argInput = document.createElement("input");
+	argInput.type = "text";
+	argInput.placeholder = "参数（可选，会按原样追加）";
+	argInput.id = "selected-command-arg";
+
+	const executeBtn = document.createElement("button");
+	executeBtn.type = "button";
+	executeBtn.className = "btn-primary";
+	executeBtn.textContent = "执行";
+	executeBtn.disabled = !isConnected;
+	executeBtn.addEventListener("click", () => {
+		const args = argInput.value.trim();
+		const fullCommand = args ? `${entry.name} ${args}` : entry.name;
+		executeRawCommand(fullCommand);
+	});
+
+	argRow.appendChild(argInput);
+	argRow.appendChild(executeBtn);
+
+	commandDetailEl.appendChild(nameEl);
+	commandDetailEl.appendChild(usageEl);
+	commandDetailEl.appendChild(metaEl);
+	commandDetailEl.appendChild(argRow);
+
+	renderCommandList();
+}
+
+async function executeRawCommand(command: string): Promise<void> {
+	log(`> ${command}`, "command");
+	const result = await api.sendCommand(command);
+	if (result.success) {
+		log(result.response || "命令执行成功", "response");
+	} else {
+		log(`错误: ${result.error}`, "error");
+	}
+}
+
+commandSearchInput.addEventListener("input", renderCommandList);
+commandCategorySelect.addEventListener("change", renderCommandList);
+
+populateCommandCategories();
+renderCommandList();
+
 // Initialize
 loadProfiles();
 
@@ -584,3 +1264,6 @@ api
 	.catch(() => {
 		updateStatus({ connected: false, authenticated: false });
 	});
+
+// Disable command controls until a connection is established.
+updateCommandControls(false);

@@ -1,8 +1,11 @@
 node_modules/
 dist/
 release/
+src-tauri/target/
+src-tauri/gen/
 *.log
 .DS_Store
 .vscode/
 .idea/
 coverage/
+src/renderer/telnet-commands.gen.ts

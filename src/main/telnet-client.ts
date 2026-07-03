@@ -32,6 +32,8 @@ export class TelnetClient extends EventEmitter {
 	private commandQueue: PendingCommand[] = [];
 	private currentCommand: PendingCommand | null = null;
 	private responseBuffer = "";
+	private authenticationBuffer = "";
+	private passwordSent = false;
 	private commandResponseAccumulator: string[] = [];
 	private commandResponseTimeout: NodeJS.Timeout | null = null;
 	private authenticationPromise: Promise<void> | null = null;
@@ -53,13 +55,28 @@ export class TelnetClient extends EventEmitter {
 
 	async connect(): Promise<void> {
 		if (this.socket?.writable) {
+			this.emitDiagnostic(
+				"connect",
+				"Socket already writable; reusing connection",
+			);
 			return;
 		}
 
 		return new Promise((resolve, reject) => {
+			this.responseBuffer = "";
+			this.authenticationBuffer = "";
+			this.passwordSent = false;
 			this.socket = new Socket();
+			this.emitDiagnostic(
+				"connect",
+				`Opening TCP connection to ${this.config.host}:${this.config.port}`,
+			);
 
 			const connectTimeout = setTimeout(() => {
+				this.emitDiagnostic(
+					"connect-timeout",
+					`TCP connection timed out after ${this.config.timeoutMs}ms`,
+				);
 				this.socket?.destroy();
 				reject(
 					new Error(`Connection timeout after ${this.config.timeoutMs}ms`),
@@ -69,6 +86,7 @@ export class TelnetClient extends EventEmitter {
 			this.socket.once("connect", () => {
 				clearTimeout(connectTimeout);
 				this.state = { ...this.state, connected: true };
+				this.emitDiagnostic("connect", "TCP connection established");
 				this.emit("connected");
 				this.authenticationPromise = this.authenticate();
 				this.authenticationPromise.then(() => resolve()).catch(reject);
@@ -76,6 +94,7 @@ export class TelnetClient extends EventEmitter {
 
 			this.socket.once("error", (error) => {
 				clearTimeout(connectTimeout);
+				this.emitDiagnostic("connect-error", error.message);
 				this.updateError(error.message);
 				reject(error);
 			});
@@ -105,6 +124,9 @@ export class TelnetClient extends EventEmitter {
 
 		this.socket?.end();
 		this.socket = null;
+		this.responseBuffer = "";
+		this.authenticationBuffer = "";
+		this.passwordSent = false;
 		this.state = { connected: false, authenticated: false };
 		this.emit("disconnected");
 	}
@@ -136,8 +158,16 @@ export class TelnetClient extends EventEmitter {
 	}
 
 	private async authenticate(): Promise<void> {
+		this.emitDiagnostic(
+			"auth",
+			"Waiting for password prompt or login response",
+		);
 		return new Promise((resolve, reject) => {
 			const timeout = setTimeout(() => {
+				this.emitDiagnostic(
+					"auth-timeout",
+					`Authentication timed out after ${this.config.timeoutMs}ms`,
+				);
 				reject(new Error("Authentication timeout"));
 			}, this.config.timeoutMs);
 
@@ -155,44 +185,85 @@ export class TelnetClient extends EventEmitter {
 
 	private handleData(data: Buffer): void {
 		const text = data.toString("utf8");
-		this.responseBuffer += text;
 
 		if (!this.state.authenticated) {
-			this.handleAuthentication(text);
+			this.authenticationBuffer += text;
+			this.emitDiagnostic(
+				"auth-data",
+				`Received authentication data: ${this.formatDiagnosticSnippet(text)}`,
+			);
+			this.handleAuthentication();
 			return;
 		}
 
+		this.responseBuffer += text;
 		this.processResponseBuffer();
 	}
 
-	private handleAuthentication(text: string): void {
-		const lowerText = text.toLowerCase();
-		if (
-			lowerText.includes("password") ||
-			lowerText.includes("enter password")
-		) {
-			this.write(this.config.password);
+	private handleAuthentication(): void {
+		const lowerText = this.authenticationBuffer.toLowerCase();
+		if (this.isAuthenticationFailure(lowerText)) {
+			this.emitDiagnostic("auth-failed", "Server rejected the password");
+			this.updateError("Invalid password");
+			this.emit("authFailed", "Invalid password");
 			return;
 		}
 
-		if (
-			lowerText.includes("logged in") ||
-			lowerText.includes("authenticated")
-		) {
+		if (this.isAuthenticationSuccess(lowerText)) {
+			this.emitDiagnostic("auth-success", "Server accepted the login");
 			this.state = { ...this.state, authenticated: true };
+			this.authenticationBuffer = "";
+			this.responseBuffer = "";
 			this.emit("authenticated");
 			this.processQueue();
 			return;
 		}
 
 		if (
-			lowerText.includes("wrong password") ||
-			lowerText.includes("authentication failed")
+			!this.passwordSent &&
+			(lowerText.includes("password") ||
+				lowerText.includes("enter password"))
 		) {
-			this.updateError("Invalid password");
-			this.emit("authFailed", "Invalid password");
+			this.passwordSent = true;
+			this.emitDiagnostic("auth", "Password prompt detected; sending password");
+			this.write(this.config.password);
 			return;
 		}
+
+		this.emitDiagnostic(
+			"auth-wait",
+			"Authentication data did not contain a known prompt, success, or failure marker",
+		);
+	}
+
+	private isAuthenticationSuccess(lowerText: string): boolean {
+		return (
+			lowerText.includes("logged in") ||
+			lowerText.includes("logon successful") ||
+			lowerText.includes("authenticated")
+		);
+	}
+
+	private isAuthenticationFailure(lowerText: string): boolean {
+		return (
+			lowerText.includes("wrong password") ||
+			lowerText.includes("password incorrect") ||
+			lowerText.includes("authentication failed")
+		);
+	}
+
+	private emitDiagnostic(phase: string, message: string): void {
+		this.emit("diagnostic", { phase, message });
+	}
+
+	private formatDiagnosticSnippet(text: string): string {
+		const redacted = this.config.password
+			? text.replaceAll(this.config.password, "[password redacted]")
+			: text;
+		const normalized = redacted.replace(/[\r\n]+/g, " ").trim();
+		return normalized.length > 160
+			? `${normalized.slice(0, 160)}...`
+			: normalized;
 	}
 
 	private processResponseBuffer(): void {

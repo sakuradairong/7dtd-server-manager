@@ -154,4 +154,84 @@ Mod AnotherMod v2.0`;
 			mods: ["SomeMod v1.0", "AnotherMod v2.0"],
 		});
 	});
+
+	it("parses real V2.5 server output with INF log prefix", () => {
+		const response = `2026-07-02T01:21:04 184106.964 INF Executing command 'version' by Telnet from 183.146.214.73:45476
+Game version: V 2.5 (b32) Compatibility Version: V 2.5
+Mod TFP_Harmony: 1.1.0.4
+Mod ZombiesIncreaseOverTime: 1.3
+Mod 0-SCore_sphereii: 2.5.10.2106`;
+
+		const version = parseVersion(response);
+
+		expect(version).toEqual({
+			gameVersion: "V 2.5 (b32) Compatibility Version: V 2.5",
+			mods: [
+				"TFP_Harmony: 1.1.0.4",
+				"ZombiesIncreaseOverTime: 1.3",
+				"0-SCore_sphereii: 2.5.10.2106",
+			],
+		});
+	});
+});
+
+describe("parseTime", () => {
+	it("parses real server output with INF log prefix", () => {
+		const response = `2026-07-02T01:21:04 184107.450 INF Executing command 'gettime' by Telnet from 183.146.214.73:45476
+Day 1, 08:28`;
+
+		const time = parseTime(response);
+
+		expect(time).toEqual({ day: 1, time: "08:28" });
+	});
+});
+
+describe("parseGamePreferences", () => {
+	it("parses real server output with INF log prefix", () => {
+		const response = `2026-07-02T01:21:05 184107.951 INF Executing command 'getgamepref' by Telnet from 183.146.214.73:45476
+GamePref.AirDropFrequency = 72
+GamePref.GameDifficulty = 3
+GamePref.ServerMaxPlayerCount = 8
+GamePref.XPMultiplier = 300`;
+
+		const prefs = parseGamePreferences(response);
+
+		expect(prefs).toEqual([
+			{ name: "GamePref.AirDropFrequency", value: "72" },
+			{ name: "GamePref.GameDifficulty", value: "3" },
+			{ name: "GamePref.ServerMaxPlayerCount", value: "8" },
+			{ name: "GamePref.XPMultiplier", value: "300" },
+		]);
+	});
+});
+
+describe("empty server responses", () => {
+	it("returns empty players when no one is online", () => {
+		const response = `2026-07-02T01:21:06 184108.811 INF Executing command 'listplayers' by Telnet from 183.146.214.73:45476
+Total of 0 in the game`;
+
+		expect(parseListPlayers(response)).toEqual([]);
+	});
+
+	it("returns empty player IDs when no one is online", () => {
+		const response = `2026-07-02T01:21:06 184109.311 INF Executing command 'listplayerids' by Telnet from 183.146.214.73:45476
+Total of 0 in the game`;
+
+		expect(parseListPlayerIds(response)).toEqual([]);
+	});
+
+	it("returns empty entities when none exist", () => {
+		const response = `2026-07-02T01:21:07 184109.814 INF Executing command 'listents' by Telnet from 183.146.214.73:45476
+Total of 0 in the game`;
+
+		expect(parseListEntities(response)).toEqual([]);
+	});
+
+	it("returns empty ban list when no bans exist", () => {
+		const response = `2026-07-02T01:21:07 184110.258 INF Executing command 'ban list' by Telnet from 183.146.214.73:45476
+Ban list entries:
+Banned until - UserID (name) - Reason`;
+
+		expect(parseBanList(response)).toEqual([]);
+	});
 });

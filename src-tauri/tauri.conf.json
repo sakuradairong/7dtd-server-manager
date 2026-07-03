@@ -1,0 +1,34 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "7 Days to Die Server Manager",
+  "version": "1.0.0",
+  "identifier": "com.example.7dtd-server-manager",
+  "build": {
+    "beforeDevCommand": "npm run build:renderer",
+    "beforeBuildCommand": "npm run build:renderer",
+    "frontendDist": "../dist/renderer"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "7 Days to Die 服务器管理工具",
+        "width": 1200,
+        "height": 800,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": ["icons/icon.png", "icons/icon.ico"],
+    "category": "Game",
+    "shortDescription": "Manage 7 Days to Die dedicated servers",
+    "longDescription": "A desktop management tool for 7 Days to Die dedicated servers via Telnet/RCON"
+  }
+}
