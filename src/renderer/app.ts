@@ -1,5 +1,6 @@
 import { buildActionCommand, buildPlayerCommand } from "./command-builder.js";
 import { initMapViewer } from "./map-viewer.js";
+import { initResultModal } from "./result-modal.js";
 import { TELNET_COMMANDS } from "./telnet-commands.gen.js";
 
 type TauriUnlisten = () => void;
@@ -131,25 +132,6 @@ const navItems = Array.from(document.querySelectorAll(".nav-item"));
 const serverAddressEl = document.getElementById(
 	"server-address",
 ) as HTMLSpanElement;
-const resultModal = document.getElementById(
-	"result-modal",
-) as HTMLDivElement;
-const modalTitle = document.getElementById(
-	"modal-title",
-) as HTMLHeadingElement;
-const modalContent = document.getElementById(
-	"modal-content",
-) as HTMLPreElement;
-const modalCloseBtn = document.getElementById(
-	"modal-close",
-) as HTMLButtonElement;
-const modalCloseBtn2 = document.getElementById(
-	"modal-close-btn",
-) as HTMLButtonElement;
-const modalCopyBtn = document.getElementById(
-	"modal-copy",
-) as HTMLButtonElement;
-
 let isConnected = false;
 const connectionDiagnosticMessages: string[] = [];
 const seenConnectionDiagnostics = new Set<string>();
@@ -179,19 +161,6 @@ function log(
 			pendingScroll = false;
 		});
 	}
-}
-
-function showResultModal(title: string, content: string): void {
-	modalTitle.textContent = title;
-	modalContent.textContent = content;
-	resultModal.classList.add("active");
-	resultModal.setAttribute("aria-hidden", "false");
-}
-
-function closeResultModal(): void {
-	resultModal.classList.remove("active");
-	resultModal.setAttribute("aria-hidden", "true");
-	modalContent.textContent = "";
 }
 
 function appendConnectionDiagnostic(
@@ -245,6 +214,8 @@ async function copyTextToClipboard(text: string): Promise<boolean> {
 		return false;
 	}
 }
+
+const resultModal = initResultModal({ copyTextToClipboard });
 
 function getLogText(): string {
 	return Array.from(logOutput.querySelectorAll(".log-entry"))
@@ -452,7 +423,7 @@ document.querySelectorAll(".action-btn, .cmd-btn").forEach((button) => {
 			const responseText = result.response || "命令执行成功";
 			log(responseText, "response");
 			if (isCmdBtn) {
-				showResultModal(command, responseText);
+				resultModal.show(command, responseText);
 			}
 			if (action === "listplayers") {
 				await refreshPlayers();
@@ -461,7 +432,7 @@ document.querySelectorAll(".action-btn, .cmd-btn").forEach((button) => {
 			const errorText = `错误: ${result.error}`;
 			log(errorText, "error");
 			if (isCmdBtn) {
-				showResultModal(`${command} - 错误`, result.error || "未知错误");
+				resultModal.show(`${command} - 错误`, result.error || "未知错误");
 			}
 		}
 	});
@@ -1509,28 +1480,6 @@ commandCategorySelect.addEventListener("change", renderCommandList);
 
 populateCommandCategories();
 renderCommandList();
-
-modalCloseBtn.addEventListener("click", closeResultModal);
-modalCloseBtn2.addEventListener("click", closeResultModal);
-modalCopyBtn.addEventListener("click", async () => {
-	const copied = await copyTextToClipboard(modalContent.textContent ?? "");
-	if (copied) {
-		modalCopyBtn.textContent = "已复制";
-		setTimeout(() => {
-			modalCopyBtn.textContent = "复制结果";
-		}, 1500);
-	}
-});
-resultModal.addEventListener("click", (event) => {
-	if (event.target === resultModal) {
-		closeResultModal();
-	}
-});
-document.addEventListener("keydown", (event) => {
-	if (event.key === "Escape" && resultModal.classList.contains("active")) {
-		closeResultModal();
-	}
-});
 
 // Initialize
 loadProfiles();
