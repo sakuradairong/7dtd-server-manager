@@ -439,10 +439,10 @@ async fn connect(config: ServerConfig, app: AppHandle) -> Result<Value, String> 
     let app_for_diagnostics = app.clone();
     let diagnostics = Arc::new(Mutex::new(Vec::new()));
     let diagnostics_clone = Arc::clone(&diagnostics);
-    let config_for_task = config.clone();
+    let endpoint = format!("{}:{}", config.host, config.port);
 
     let connection_result = tauri::async_runtime::spawn_blocking(move || {
-        TelnetConnection::connect_with_diagnostics(config_for_task, |phase, message| {
+        TelnetConnection::connect_with_diagnostics(config, |phase, message| {
             diagnostics_clone
                 .lock()
                 .expect("diagnostics lock")
@@ -462,11 +462,7 @@ async fn connect(config: ServerConfig, app: AppHandle) -> Result<Value, String> 
             }
             emit_server_event(&app, json!({ "type": "connected" }));
             emit_server_event(&app, json!({ "type": "authenticated" }));
-            log_line(
-                &app,
-                format!("Connected to {}:{}", config.host, config.port),
-                "event",
-            );
+            log_line(&app, format!("Connected to {}", endpoint), "event");
             let diagnostics = diagnostics.lock().expect("diagnostics lock").clone();
             Ok(json!({ "success": true, "state": state_snapshot, "diagnostics": diagnostics }))
         }
@@ -529,23 +525,23 @@ async fn send_command(command: String, app: AppHandle) -> Result<Value, String> 
     }
 
     let app_for_task = app.clone();
-    let command_for_task = command.clone();
 
     let command_result = tauri::async_runtime::spawn_blocking(move || {
-        log_line(&app_for_task, format!("> {}", command_for_task), "command");
+        log_line(&app_for_task, format!("> {}", command), "command");
         let state = app_for_task.state::<SharedState>();
-        let (timeout_ms, silence_ms) = command_options(&command_for_task);
-        send_raw_with_options(&state, &command_for_task, timeout_ms, silence_ms)
+        let (timeout_ms, silence_ms) = command_options(&command);
+        let result = send_raw_with_options(&state, &command, timeout_ms, silence_ms);
+        (command, result)
     })
     .await
     .map_err(|error| format!("Command task failed: {}", error));
 
     match command_result {
-        Ok(Ok(result)) => {
+        Ok((_, Ok(result))) => {
             log_command_result(&app, &result);
             Ok(json!(result))
         }
-        Ok(Err(error)) => {
+        Ok((command, Err(error))) => {
             log_line(
                 &app,
                 format!("Command error ({}): {}", command, error),
@@ -559,15 +555,11 @@ async fn send_command(command: String, app: AppHandle) -> Result<Value, String> 
             }))
         }
         Err(error) => {
-            log_line(
-                &app,
-                format!("Command error ({}): {}", command, error),
-                "error",
-            );
+            log_line(&app, format!("Command task error: {}", error), "error");
             Ok(json!({
                 "success": false,
                 "error": error,
-                "command": command,
+                "command": "",
                 "response": ""
             }))
         }
@@ -577,17 +569,14 @@ async fn send_command(command: String, app: AppHandle) -> Result<Value, String> 
 #[tauri::command]
 async fn api_call(method: String, args: Vec<Value>, app: AppHandle) -> Result<Value, String> {
     let app_for_task = app.clone();
-    let method_for_task = method.clone();
-    let args_for_task = args.clone();
 
     let api_result = tauri::async_runtime::spawn_blocking(move || {
         log_line(
             &app_for_task,
             format!(
                 "API call: {}({})",
-                method_for_task,
-                args_for_task
-                    .iter()
+                method,
+                args.iter()
                     .map(Value::to_string)
                     .collect::<Vec<_>>()
                     .join(", ")
@@ -596,7 +585,7 @@ async fn api_call(method: String, args: Vec<Value>, app: AppHandle) -> Result<Va
         );
 
         let state = app_for_task.state::<SharedState>();
-        match method_for_task.as_str() {
+        match method.as_str() {
             "listPlayers" => match send_raw_with_options(&state, "listplayers", 15_000, 400) {
                 Ok(result) => {
                     let players = parse_list_players(&result.response);
@@ -617,7 +606,7 @@ async fn api_call(method: String, args: Vec<Value>, app: AppHandle) -> Result<Va
                 }
             },
             _ => {
-                json!({ "success": false, "error": format!("Unknown method: {}", method_for_task) })
+                json!({ "success": false, "error": format!("Unknown method: {}", method) })
             }
         }
     })
