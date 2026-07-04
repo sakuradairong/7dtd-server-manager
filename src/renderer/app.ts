@@ -1,4 +1,5 @@
 import { buildActionCommand, buildPlayerCommand } from "./command-builder.js";
+import { initMapViewer } from "./map-viewer.js";
 import { TELNET_COMMANDS } from "./telnet-commands.gen.js";
 
 type TauriUnlisten = () => void;
@@ -1544,95 +1545,4 @@ api
 // Disable command controls until a connection is established.
 updateCommandControls(false);
 
-// --- Map Viewer ---
-
-const selectMapDirBtn = document.getElementById(
-	"select-map-dir",
-) as HTMLButtonElement;
-const mapDirPathEl = document.getElementById(
-	"map-dir-path",
-) as HTMLDivElement;
-const mapFileListEl = document.getElementById(
-	"map-file-list",
-) as HTMLDivElement;
-const mapPreviewEl = document.getElementById(
-	"map-preview",
-) as HTMLDivElement;
-
-selectMapDirBtn.addEventListener("click", async () => {
-	try {
-		const result = await api.selectMapDirectory();
-		if (!result.success || !result.directory) {
-			log(`选择地图目录失败: ${result.error}`, "error");
-			return;
-		}
-
-		mapDirPathEl.textContent = result.directory;
-		await loadMapFiles(result.directory);
-		log(`已加载地图目录: ${result.directory}`, "event");
-	} catch (error) {
-		log(
-			`选择地图目录失败: ${error instanceof Error ? error.message : String(error)}`,
-			"error",
-		);
-	}
-});
-
-async function loadMapFiles(directory: string): Promise<void> {
-	try {
-		const result = await api.getMapFiles(directory);
-		if (!result.success) {
-			log(`获取地图文件失败: ${result.error}`, "error");
-			return;
-		}
-
-		clearElement(mapFileListEl);
-
-		if (result.files.length === 0) {
-			const empty = document.createElement("div");
-			empty.className = "map-file-empty";
-			empty.textContent = "目录中没有找到地图图片";
-			mapFileListEl.appendChild(empty);
-			return;
-		}
-
-		for (const file of result.files) {
-			const item = document.createElement("button");
-			item.type = "button";
-			item.className = "map-file-item";
-			item.textContent = file.name;
-			item.addEventListener("click", () => loadMapImage(file.path));
-			mapFileListEl.appendChild(item);
-		}
-	} catch (error) {
-		log(
-			`获取地图文件失败: ${error instanceof Error ? error.message : String(error)}`,
-			"error",
-		);
-	}
-}
-
-async function loadMapImage(filePath: string): Promise<void> {
-	try {
-		const result = await api.readMapImage(filePath);
-		if (!result.success || !result.dataUri) {
-			log(`读取地图图片失败: ${result.error}`, "error");
-			return;
-		}
-
-		clearElement(mapPreviewEl);
-
-		const img = document.createElement("img");
-		img.src = result.dataUri;
-		img.alt = "地图预览";
-		img.addEventListener("click", () => {
-			window.open(result.dataUri, "_blank");
-		});
-		mapPreviewEl.appendChild(img);
-	} catch (error) {
-		log(
-			`读取地图图片失败: ${error instanceof Error ? error.message : String(error)}`,
-			"error",
-		);
-	}
-}
+initMapViewer({ api, log, clearElement });
