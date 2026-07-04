@@ -1,3 +1,4 @@
+use base64::{engine::general_purpose, Engine};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -291,10 +292,15 @@ where
     F: Fn(&str) -> bool,
 {
     let deadline = Instant::now() + timeout;
-    let mut output = String::new();
-    let mut buffer = [0_u8; 4096];
+    let mut output = String::with_capacity(8192);
+    let mut buffer = [0_u8; 16384];
 
-    while Instant::now() < deadline {
+    loop {
+        let now = Instant::now();
+        if now >= deadline {
+            break;
+        }
+
         match stream.read(&mut buffer) {
             Ok(0) => break,
             Ok(bytes_read) => {
@@ -320,16 +326,21 @@ fn read_command_response(
     silence: Duration,
 ) -> Result<String, String> {
     let deadline = Instant::now() + timeout;
-    let mut output = String::new();
-    let mut buffer = [0_u8; 4096];
+    let mut output = String::with_capacity(8192);
+    let mut buffer = [0_u8; 16384];
     let mut last_data_at: Option<Instant> = None;
 
-    while Instant::now() < deadline {
+    loop {
+        let now = Instant::now();
+        if now >= deadline {
+            break;
+        }
+
         match stream.read(&mut buffer) {
             Ok(0) => break,
             Ok(bytes_read) => {
                 output.push_str(&String::from_utf8_lossy(&buffer[..bytes_read]));
-                last_data_at = Some(Instant::now());
+                last_data_at = Some(now);
                 if contains_prompt(&output) && output_contains_non_echo(command, &output) {
                     break;
                 }
@@ -337,7 +348,7 @@ fn read_command_response(
             Err(error)
                 if error.kind() == ErrorKind::WouldBlock || error.kind() == ErrorKind::TimedOut =>
             {
-                if last_data_at.is_some_and(|instant| instant.elapsed() >= silence) {
+                if last_data_at.is_some_and(|instant| now.duration_since(instant) >= silence) {
                     break;
                 }
             }
@@ -642,6 +653,78 @@ fn select_server_config_file() -> Value {
 }
 
 #[tauri::command]
+fn select_map_directory() -> Value {
+    match rfd::FileDialog::new().pick_folder() {
+        Some(path) => json!({ "success": true, "directory": path.to_string_lossy() }),
+        None => json!({ "success": false, "error": "No directory selected" }),
+    }
+}
+
+#[tauri::command]
+fn get_map_files(directory: String) -> Value {
+    let dir = PathBuf::from(&directory);
+    if !dir.is_dir() {
+        return json!({ "success": false, "error": "Invalid directory" });
+    }
+
+    let extensions = ["png", "jpg", "jpeg", "bmp", "gif", "webp"];
+    let mut files = Vec::new();
+
+    match fs::read_dir(&dir) {
+        Ok(entries) => {
+            for entry in entries.filter_map(Result::ok) {
+                let path = entry.path();
+                if let Some(ext) = path.extension() {
+                    let ext = ext.to_string_lossy().to_lowercase();
+                    if extensions.contains(&ext.as_str()) {
+                        if let Some(name) = path.file_name() {
+                            files.push(json!({
+                                "name": name.to_string_lossy(),
+                                "path": path.to_string_lossy()
+                            }));
+                        }
+                    }
+                }
+            }
+            files.sort_by(|a, b| {
+                let a_name = a.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                let b_name = b.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                a_name.cmp(b_name)
+            });
+            json!({ "success": true, "files": files })
+        }
+        Err(error) => json!({ "success": false, "error": error.to_string() }),
+    }
+}
+
+#[tauri::command]
+fn read_map_image(file_path: String) -> Value {
+    match fs::read(&file_path) {
+        Ok(data) => {
+            let ext = PathBuf::from(&file_path)
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("png")
+                .to_lowercase();
+            let mime = match ext.as_str() {
+                "jpg" | "jpeg" => "image/jpeg",
+                "png" => "image/png",
+                "gif" => "image/gif",
+                "bmp" => "image/bmp",
+                "webp" => "image/webp",
+                _ => "image/png",
+            };
+            let base64 = general_purpose::STANDARD.encode(&data);
+            json!({
+                "success": true,
+                "dataUri": format!("data:{};base64,{}", mime, base64)
+            })
+        }
+        Err(error) => json!({ "success": false, "error": error.to_string() }),
+    }
+}
+
+#[tauri::command]
 fn load_server_config(file_path: String, app: AppHandle) -> Value {
     match fs::read_to_string(&file_path) {
         Ok(content) => {
@@ -816,12 +899,15 @@ fn log_line(app: &AppHandle, message: impl AsRef<str>, level: &str) {
         let _ = fs::create_dir_all(&dir);
         let file_path = dir.join(format!("7dtd-manager-{}.log", current_date_string()));
         let timestamp = chrono_like_timestamp();
-        let line = format!(
-            "[{}] [{}] {}\n",
-            timestamp,
-            level.to_uppercase(),
-            message.as_ref()
-        );
+        let msg = message.as_ref();
+        let mut line = String::with_capacity(msg.len() + 32);
+        line.push('[');
+        line.push_str(&timestamp);
+        line.push_str("] [");
+        line.push_str(&level.to_ascii_uppercase());
+        line.push_str("] ");
+        line.push_str(msg);
+        line.push('\n');
         let _ = fs::OpenOptions::new()
             .create(true)
             .append(true)
@@ -1242,6 +1328,9 @@ pub fn run() {
             get_log_directory,
             open_log_directory,
             select_server_config_file,
+            select_map_directory,
+            get_map_files,
+            read_map_image,
             load_server_config,
             save_server_config,
             get_profiles,

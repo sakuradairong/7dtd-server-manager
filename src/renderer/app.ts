@@ -53,6 +53,11 @@ function createTauriApi(): DesktopApi {
 			invokeTauri("load_server_config", { filePath }),
 		saveServerConfig: (filePath, updates) =>
 			invokeTauri("save_server_config", { filePath, updates }),
+		selectMapDirectory: () => invokeTauri("select_map_directory"),
+		getMapFiles: (directory) =>
+			invokeTauri("get_map_files", { directory }),
+		readMapImage: (filePath) =>
+			invokeTauri("read_map_image", { filePath }),
 		getProfiles: () => invokeTauri("get_profiles"),
 		saveProfile: (profile) => invokeTauri("save_profile", { profile }),
 		deleteProfile: (id) => invokeTauri("delete_profile", { id }),
@@ -125,12 +130,33 @@ const navItems = Array.from(document.querySelectorAll(".nav-item"));
 const serverAddressEl = document.getElementById(
 	"server-address",
 ) as HTMLSpanElement;
+const resultModal = document.getElementById(
+	"result-modal",
+) as HTMLDivElement;
+const modalTitle = document.getElementById(
+	"modal-title",
+) as HTMLHeadingElement;
+const modalContent = document.getElementById(
+	"modal-content",
+) as HTMLPreElement;
+const modalCloseBtn = document.getElementById(
+	"modal-close",
+) as HTMLButtonElement;
+const modalCloseBtn2 = document.getElementById(
+	"modal-close-btn",
+) as HTMLButtonElement;
+const modalCopyBtn = document.getElementById(
+	"modal-copy",
+) as HTMLButtonElement;
 
 let isConnected = false;
 const connectionDiagnosticMessages: string[] = [];
 const seenConnectionDiagnostics = new Set<string>();
 const commandHistory: string[] = [];
 let commandHistoryIndex = 0;
+
+const MAX_LOG_ENTRIES = 500;
+let pendingScroll = false;
 
 function log(
 	message: string,
@@ -140,7 +166,31 @@ function log(
 	entry.className = `log-entry ${type}`;
 	entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
 	logOutput.appendChild(entry);
-	logOutput.scrollTop = logOutput.scrollHeight;
+
+	while (logOutput.childElementCount > MAX_LOG_ENTRIES) {
+		logOutput.removeChild(logOutput.firstChild!);
+	}
+
+	if (!pendingScroll) {
+		pendingScroll = true;
+		requestAnimationFrame(() => {
+			logOutput.scrollTop = logOutput.scrollHeight;
+			pendingScroll = false;
+		});
+	}
+}
+
+function showResultModal(title: string, content: string): void {
+	modalTitle.textContent = title;
+	modalContent.textContent = content;
+	resultModal.classList.add("active");
+	resultModal.setAttribute("aria-hidden", "false");
+}
+
+function closeResultModal(): void {
+	resultModal.classList.remove("active");
+	resultModal.setAttribute("aria-hidden", "true");
+	modalContent.textContent = "";
 }
 
 function appendConnectionDiagnostic(
@@ -378,6 +428,7 @@ document.querySelectorAll(".action-btn, .cmd-btn").forEach((button) => {
 		const confirmMessage = btn.dataset.confirm;
 		const fixedArgs = btn.dataset.args;
 		const promptLabel = btn.dataset.prompt;
+		const isCmdBtn = btn.classList.contains("cmd-btn");
 
 		if (confirmMessage && !window.confirm(confirmMessage)) {
 			return;
@@ -397,12 +448,20 @@ document.querySelectorAll(".action-btn, .cmd-btn").forEach((button) => {
 		const result = await api.sendCommand(command);
 
 		if (result.success) {
-			log(result.response || "命令执行成功", "response");
+			const responseText = result.response || "命令执行成功";
+			log(responseText, "response");
+			if (isCmdBtn) {
+				showResultModal(command, responseText);
+			}
 			if (action === "listplayers") {
 				await refreshPlayers();
 			}
 		} else {
-			log(`错误: ${result.error}`, "error");
+			const errorText = `错误: ${result.error}`;
+			log(errorText, "error");
+			if (isCmdBtn) {
+				showResultModal(`${command} - 错误`, result.error || "未知错误");
+			}
 		}
 	});
 });
@@ -533,6 +592,7 @@ function renderPlayers(
 		return;
 	}
 
+	const fragment = document.createDocumentFragment();
 	for (const player of players) {
 		const row = document.createElement("tr");
 		const positionText = player.position
@@ -564,41 +624,45 @@ function renderPlayers(
 		actionsCell.appendChild(actionsDiv);
 		row.appendChild(actionsCell);
 
-		playersTableBody.appendChild(row);
+		fragment.appendChild(row);
+	}
+	playersTableBody.appendChild(fragment);
+}
+
+playersTableBody.addEventListener("click", async (event) => {
+	const button = (event.target as HTMLElement).closest(
+		"button[data-action]",
+	) as HTMLButtonElement | null;
+	if (!button) return;
+
+	const action = button.dataset.action!;
+	const playerName = button.dataset.player!;
+
+	let promptValue: string | null | undefined;
+	if (action === "kick") {
+		promptValue = window.prompt(`踢出 ${playerName} 的原因（可选）:`);
+		if (promptValue === null) return;
+	} else if (action === "sayplayer") {
+		promptValue = window.prompt(`发送给 ${playerName} 的私聊内容:`);
+		if (promptValue === null || !promptValue.trim()) return;
+	} else if (action === "ban") {
+		promptValue = window.prompt(
+			`封禁 ${playerName} 的时长/单位/原因，例如: 2 hours griefing`,
+		);
+		if (promptValue === null) return;
 	}
 
-	playersTableBody.querySelectorAll("button[data-action]").forEach((button) => {
-		button.addEventListener("click", async () => {
-			const action = (button as HTMLButtonElement).dataset.action!;
-			const playerName = (button as HTMLButtonElement).dataset.player!;
+	const command = buildPlayerCommand(action, playerName, promptValue);
+	log(`> ${command}`, "command");
+	const result = await api.sendCommand(command);
 
-			let promptValue: string | null | undefined;
-			if (action === "kick") {
-				promptValue = window.prompt(`踢出 ${playerName} 的原因（可选）:`);
-				if (promptValue === null) return;
-			} else if (action === "sayplayer") {
-				promptValue = window.prompt(`发送给 ${playerName} 的私聊内容:`);
-				if (promptValue === null || !promptValue.trim()) return;
-			} else if (action === "ban") {
-				promptValue = window.prompt(
-					`封禁 ${playerName} 的时长/单位/原因，例如: 2 hours griefing`,
-				);
-				if (promptValue === null) return;
-			}
-
-			const command = buildPlayerCommand(action, playerName, promptValue);
-			log(`> ${command}`, "command");
-			const result = await api.sendCommand(command);
-
-			if (result.success) {
-				log(result.response || "操作成功", "response");
-				await refreshPlayers();
-			} else {
-				log(`错误: ${result.error}`, "error");
-			}
-		});
-	});
-}
+	if (result.success) {
+		log(result.response || "操作成功", "response");
+		await refreshPlayers();
+	} else {
+		log(`错误: ${result.error}`, "error");
+	}
+});
 
 // --- Server Config Editing ---
 
@@ -668,6 +732,64 @@ saveConfigBtn.addEventListener("click", async () => {
 	}
 });
 
+const CONFIG_PROPERTY_LABELS: Record<string, string> = {
+	ServerName: "服务器名称",
+	ServerDescription: "服务器描述",
+	ServerWebsiteURL: "服务器网站",
+	ServerPassword: "服务器密码",
+	ServerLoginConfirmationText: "登录确认文本",
+	Region: "地区",
+	Language: "语言",
+	ServerPort: "服务器端口",
+	ServerVisibility: "服务器可见性",
+	MaxPlayers: "最大玩家数",
+	MaxPlayerCount: "最大玩家数（备用）",
+	GameWorld: "游戏世界",
+	WorldGenSeed: "世界种子",
+	WorldGenSize: "世界大小",
+	GameName: "游戏名称",
+	GameDifficulty: "游戏难度",
+	BlockDamagePlayer: "玩家方块伤害",
+	BlockDamageAI: "AI 方块伤害",
+	BlockDamageAIBM: "血月 AI 方块伤害",
+	XPMultiplier: "经验倍率",
+	PlayerSafeZoneLevel: "安全区等级",
+	PlayerSafeZoneHours: "安全区时长",
+	BuildCreate: "创造模式建造",
+	DayNightLength: "昼夜长度",
+	DayLightLength: "白天长度",
+	DeathPenalty: "死亡惩罚",
+	DropOnDeath: "死亡掉落",
+	DropOnQuit: "退出掉落",
+	BloodMoonEnemyCount: "血月敌人数",
+	EnemyDifficulty: "敌人难度",
+	EnemySpawnMode: "敌人生成模式",
+	ZombiesRun: "僵尸奔跑",
+	ZombieFeralSense: "僵尸野性感知",
+	ZombieBMMove: "血月僵尸移动",
+	ZombieFeralMove: "野性僵尸移动",
+	ZombieNormalMove: "普通僵尸移动",
+	ZombieNightMove: "夜间僵尸移动",
+	EACEnabled: "反作弊启用",
+	LandClaimCount: "领地声明数",
+	LandClaimSize: "领地大小",
+	LandClaimDeadZone: "领地死区",
+	LandClaimDecayMode: "领地衰减模式",
+	LandClaimExpiryTime: "领地过期时间",
+	LandClaimOfflineDurabilityModifier: "离线耐久修正",
+	LandClaimOnlineDurabilityModifier: "在线耐久修正",
+	AirDropFrequency: "空投频率",
+	AirDropMarker: "空投标记",
+	PartySharedKillRange: "队伍共享击杀范围",
+	PlayerKillingMode: "玩家击杀模式",
+	PersistenceDirectory: "持久化目录",
+	ChatWindowEnabled: "聊天窗口启用",
+	ShowFriendPlayerOnMap: "好友地图显示",
+	CameraRestrictionMode: "相机限制模式",
+	JarRefund: "罐子返还",
+	AISmellMode: "AI 嗅觉模式",
+};
+
 function renderConfigForm(properties: { name: string; value: string }[]): void {
 	while (configForm.firstChild) {
 		configForm.removeChild(configForm.firstChild);
@@ -678,12 +800,14 @@ function renderConfigForm(properties: { name: string; value: string }[]): void {
 		row.className = "config-row";
 
 		const label = document.createElement("label");
-		label.textContent = property.name;
+		label.textContent = CONFIG_PROPERTY_LABELS[property.name] ?? property.name;
+		label.title = property.name;
 
 		const input = document.createElement("input");
 		input.type = "text";
 		input.value = property.value;
 		input.dataset.name = property.name;
+		input.title = property.name;
 
 		row.appendChild(label);
 		row.appendChild(input);
@@ -1156,6 +1280,17 @@ function populateCommandCategories(): void {
 	}
 }
 
+function debounce<T extends (...args: unknown[]) => void>(
+	fn: T,
+	ms: number,
+): (...args: Parameters<T>) => void {
+	let timer: ReturnType<typeof setTimeout> | null = null;
+	return (...args: Parameters<T>) => {
+		if (timer) clearTimeout(timer);
+		timer = setTimeout(() => fn(...args), ms);
+	};
+}
+
 function renderCommandList(): void {
 	const search = commandSearchInput.value.trim().toLowerCase();
 	const category = commandCategorySelect.value;
@@ -1179,19 +1314,41 @@ function renderCommandList(): void {
 		return;
 	}
 
+	const fragment = document.createDocumentFragment();
 	for (const entry of filtered) {
-		const button = document.createElement("button");
-		button.type = "button";
-		button.className = "command-list-item";
-		button.textContent = entry.name;
-		button.title = entry.usage;
-		button.disabled = !isConnected;
+		const item = document.createElement("button");
+		item.type = "button";
+		item.className = "command-list-item";
+		item.disabled = !isConnected;
 		if (entry.name === selectedCommandName) {
-			button.classList.add("active");
+			item.classList.add("active");
 		}
-		button.addEventListener("click", () => selectCommand(entry.name));
-		commandListEl.appendChild(button);
+		item.addEventListener("click", () => selectCommand(entry.name));
+
+		const main = document.createElement("div");
+		main.className = "command-list-main";
+
+		const name = document.createElement("span");
+		name.className = "command-list-name";
+		name.textContent = entry.name;
+
+		const categoryEl = document.createElement("span");
+		categoryEl.className = "command-list-category";
+		categoryEl.textContent = getCategoryDisplayName(entry.category);
+
+		main.appendChild(name);
+		main.appendChild(categoryEl);
+
+		const usage = document.createElement("div");
+		usage.className = "command-list-usage";
+		usage.textContent = entry.usage;
+		usage.title = entry.usage;
+
+		item.appendChild(main);
+		item.appendChild(usage);
+		fragment.appendChild(item);
 	}
+	commandListEl.appendChild(fragment);
 }
 
 function selectCommand(name: string): void {
@@ -1261,11 +1418,33 @@ async function executeRawCommand(command: string): Promise<void> {
 	}
 }
 
-commandSearchInput.addEventListener("input", renderCommandList);
+commandSearchInput.addEventListener("input", debounce(renderCommandList, 150));
 commandCategorySelect.addEventListener("change", renderCommandList);
 
 populateCommandCategories();
 renderCommandList();
+
+modalCloseBtn.addEventListener("click", closeResultModal);
+modalCloseBtn2.addEventListener("click", closeResultModal);
+modalCopyBtn.addEventListener("click", async () => {
+	const copied = await copyTextToClipboard(modalContent.textContent ?? "");
+	if (copied) {
+		modalCopyBtn.textContent = "已复制";
+		setTimeout(() => {
+			modalCopyBtn.textContent = "复制结果";
+		}, 1500);
+	}
+});
+resultModal.addEventListener("click", (event) => {
+	if (event.target === resultModal) {
+		closeResultModal();
+	}
+});
+document.addEventListener("keydown", (event) => {
+	if (event.key === "Escape" && resultModal.classList.contains("active")) {
+		closeResultModal();
+	}
+});
 
 // Initialize
 loadProfiles();
@@ -1279,3 +1458,99 @@ api
 
 // Disable command controls until a connection is established.
 updateCommandControls(false);
+
+// --- Map Viewer ---
+
+const selectMapDirBtn = document.getElementById(
+	"select-map-dir",
+) as HTMLButtonElement;
+const mapDirPathEl = document.getElementById(
+	"map-dir-path",
+) as HTMLDivElement;
+const mapFileListEl = document.getElementById(
+	"map-file-list",
+) as HTMLDivElement;
+const mapPreviewEl = document.getElementById(
+	"map-preview",
+) as HTMLDivElement;
+
+let currentMapDirectory: string | null = null;
+
+selectMapDirBtn.addEventListener("click", async () => {
+	try {
+		const result = await api.selectMapDirectory();
+		if (!result.success || !result.directory) {
+			log(`选择地图目录失败: ${result.error}`, "error");
+			return;
+		}
+
+		currentMapDirectory = result.directory;
+		mapDirPathEl.textContent = result.directory;
+		await loadMapFiles(result.directory);
+		log(`已加载地图目录: ${result.directory}`, "event");
+	} catch (error) {
+		log(
+			`选择地图目录失败: ${error instanceof Error ? error.message : String(error)}`,
+			"error",
+		);
+	}
+});
+
+async function loadMapFiles(directory: string): Promise<void> {
+	try {
+		const result = await api.getMapFiles(directory);
+		if (!result.success) {
+			log(`获取地图文件失败: ${result.error}`, "error");
+			return;
+		}
+
+		clearElement(mapFileListEl);
+
+		if (result.files.length === 0) {
+			const empty = document.createElement("div");
+			empty.className = "map-file-empty";
+			empty.textContent = "目录中没有找到地图图片";
+			mapFileListEl.appendChild(empty);
+			return;
+		}
+
+		for (const file of result.files) {
+			const item = document.createElement("button");
+			item.type = "button";
+			item.className = "map-file-item";
+			item.textContent = file.name;
+			item.addEventListener("click", () => loadMapImage(file.path));
+			mapFileListEl.appendChild(item);
+		}
+	} catch (error) {
+		log(
+			`获取地图文件失败: ${error instanceof Error ? error.message : String(error)}`,
+			"error",
+		);
+	}
+}
+
+async function loadMapImage(filePath: string): Promise<void> {
+	try {
+		const result = await api.readMapImage(filePath);
+		if (!result.success || !result.dataUri) {
+			log(`读取地图图片失败: ${result.error}`, "error");
+			return;
+		}
+
+		clearElement(mapPreviewEl);
+
+		const img = document.createElement("img");
+		img.src = result.dataUri;
+		img.alt = "地图预览";
+		img.addEventListener("click", () => {
+			window.open(result.dataUri, "_blank");
+		});
+		mapPreviewEl.appendChild(img);
+	} catch (error) {
+		log(
+			`读取地图图片失败: ${error instanceof Error ? error.message : String(error)}`,
+			"error",
+		);
+	}
+}

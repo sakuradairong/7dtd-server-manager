@@ -91,6 +91,21 @@ interface DesktopApi {
 		error?: string;
 	}>;
 	setLastUsedProfile(id: string): Promise<{ success: boolean; error?: string }>;
+	selectMapDirectory(): Promise<{
+		success: boolean;
+		directory?: string;
+		error?: string;
+	}>;
+	getMapFiles(directory: string): Promise<{
+		success: boolean;
+		files: { name: string; path: string }[];
+		error?: string;
+	}>;
+	readMapImage(filePath: string): Promise<{
+		success: boolean;
+		dataUri?: string;
+		error?: string;
+	}>;
 	onServerEvent(
 		callback: (event: { type: string; [key: string]: unknown }) => void,
 	): () => void;

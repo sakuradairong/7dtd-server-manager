@@ -96,6 +96,20 @@
             <span class="nav-label">配置</span>
           </button>
           <button
+            id="nav-map"
+            class="nav-item"
+            data-tab="map"
+            role="tab"
+            aria-selected="false"
+            aria-controls="tab-map"
+            title="地图"
+            aria-label="地图"
+            tabindex="-1"
+          >
+            <span class="nav-icon">🗺️</span>
+            <span class="nav-label">地图</span>
+          </button>
+          <button
             id="nav-commands"
             class="nav-item"
             data-tab="commands"
@@ -602,6 +616,48 @@
             </div>
           </section>
 
+          <section
+            class="tab-panel"
+            id="tab-map"
+            role="tabpanel"
+            aria-labelledby="nav-map"
+          >
+            <div class="section-header">
+              <div class="section-badge">🗺️ 地图查看</div>
+              <h2>服务器地图预览</h2>
+            </div>
+
+            <div class="map-viewer">
+              <div class="card map-sidebar">
+                <div class="card-header">
+                  <span class="card-icon">📁</span>
+                  <div>
+                    <h3>地图目录</h3>
+                    <p>选择服务器地图文件夹</p>
+                  </div>
+                </div>
+                <button id="select-map-dir" class="btn-primary btn-full">
+                  选择地图目录
+                </button>
+                <div id="map-dir-path" class="map-dir-path">未选择目录</div>
+                <div id="map-file-list" class="map-file-list"></div>
+              </div>
+
+              <div class="card map-preview-card">
+                <div class="card-header">
+                  <span class="card-icon">🗺️</span>
+                  <div>
+                    <h3>地图预览</h3>
+                    <p>点击左侧文件查看地图</p>
+                  </div>
+                </div>
+                <div id="map-preview" class="map-preview">
+                  <div class="map-preview-empty">请从左侧选择一个地图文件</div>
+                </div>
+              </div>
+            </div>
+          </section>
+
           <!-- 日志标签 -->
           <section
             class="tab-panel"
@@ -626,6 +682,24 @@
             </div>
           </section>
         </main>
+      </div>
+    </div>
+
+    <div id="result-modal" class="modal-overlay" aria-hidden="true">
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+        <div class="modal-header">
+          <h3 id="modal-title">命令结果</h3>
+          <button type="button" id="modal-close" class="modal-close" aria-label="关闭">
+            &times;
+          </button>
+        </div>
+        <div class="modal-body">
+          <pre id="modal-content"></pre>
+        </div>
+        <div class="modal-footer">
+          <button type="button" id="modal-copy" class="btn-secondary">复制结果</button>
+          <button type="button" id="modal-close-btn" class="btn-primary">关闭</button>
+        </div>
       </div>
     </div>
 
