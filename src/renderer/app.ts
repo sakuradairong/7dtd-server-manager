@@ -564,6 +564,103 @@ function createPlayerActionButton(
 	return button;
 }
 
+type PlayerListEntry = {
+	readonly entityId: number;
+	readonly name: string;
+	readonly level?: number;
+	readonly health?: number;
+	readonly position?: { readonly x: number; readonly y: number; readonly z: number };
+	readonly ping?: number;
+};
+
+type PlayerCellField =
+	| "entityId"
+	| "name"
+	| "level"
+	| "health"
+	| "position"
+	| "ping";
+
+function formatPlayerPosition(player: PlayerListEntry): string {
+	return player.position
+		? `${Math.round(player.position.x)}, ${Math.round(player.position.y)}, ${Math.round(player.position.z)}`
+		: "-";
+}
+
+function createPlayerCell(
+	field: PlayerCellField,
+	text: string,
+): HTMLTableCellElement {
+	const cell = createCell(text);
+	cell.dataset.playerField = field;
+	return cell;
+}
+
+function setPlayerCellText(
+	row: HTMLTableRowElement,
+	field: PlayerCellField,
+	text: string,
+): void {
+	const cell = row.querySelector<HTMLTableCellElement>(
+		`td[data-player-field="${field}"]`,
+	);
+	if (cell && cell.textContent !== text) {
+		cell.textContent = text;
+	}
+}
+
+function updatePlayerActionButtons(
+	row: HTMLTableRowElement,
+	playerName: string,
+): void {
+	for (const button of Array.from(
+		row.querySelectorAll<HTMLButtonElement>("button[data-action]"),
+	)) {
+		if (button.dataset.player !== playerName) {
+			button.dataset.player = playerName;
+		}
+	}
+}
+
+function updatePlayerRow(
+	row: HTMLTableRowElement,
+	player: PlayerListEntry,
+): void {
+	setPlayerCellText(row, "entityId", String(player.entityId));
+	setPlayerCellText(row, "name", player.name);
+	setPlayerCellText(row, "level", String(player.level ?? "-"));
+	setPlayerCellText(row, "health", String(player.health ?? "-"));
+	setPlayerCellText(row, "position", formatPlayerPosition(player));
+	setPlayerCellText(row, "ping", String(player.ping ?? "-"));
+	updatePlayerActionButtons(row, player.name);
+}
+
+function createPlayerRow(player: PlayerListEntry): HTMLTableRowElement {
+	const row = document.createElement("tr");
+	row.dataset.entityId = String(player.entityId);
+
+	row.appendChild(createPlayerCell("entityId", String(player.entityId)));
+	row.appendChild(createPlayerCell("name", player.name));
+	row.appendChild(createPlayerCell("level", String(player.level ?? "-")));
+	row.appendChild(createPlayerCell("health", String(player.health ?? "-")));
+	row.appendChild(createPlayerCell("position", formatPlayerPosition(player)));
+	row.appendChild(createPlayerCell("ping", String(player.ping ?? "-")));
+
+	const actionsCell = document.createElement("td");
+	const actionsDiv = document.createElement("div");
+	actionsDiv.className = "player-actions";
+	actionsDiv.appendChild(createPlayerActionButton("kick", player.name, "踢出"));
+	actionsDiv.appendChild(createPlayerActionButton("kill", player.name, "击杀"));
+	actionsDiv.appendChild(
+		createPlayerActionButton("sayplayer", player.name, "私聊"),
+	);
+	actionsDiv.appendChild(createPlayerActionButton("ban", player.name, "封禁"));
+	actionsCell.appendChild(actionsDiv);
+	row.appendChild(actionsCell);
+
+	return row;
+}
+
 function renderEmptyPlayersRow(): void {
 	clearPlayersTable();
 	const row = document.createElement("tr");
@@ -575,57 +672,45 @@ function renderEmptyPlayersRow(): void {
 	playersTableBody.appendChild(row);
 }
 
-function renderPlayers(
-	players: Array<{
-		entityId: number;
-		name: string;
-		level?: number;
-		health?: number;
-		position?: { x: number; y: number; z: number };
-		ping?: number;
-	}>,
-): void {
-	clearPlayersTable();
-
+function renderPlayers(players: readonly PlayerListEntry[]): void {
 	if (players.length === 0) {
 		renderEmptyPlayersRow();
 		return;
 	}
 
+	playersTableBody.querySelector(".empty-row")?.remove();
+
+	const rowsByEntityId = new Map<string, HTMLTableRowElement>();
+	for (const row of Array.from(
+		playersTableBody.querySelectorAll<HTMLTableRowElement>("tr[data-entity-id]"),
+	)) {
+		const entityId = row.dataset.entityId;
+		if (entityId) {
+			rowsByEntityId.set(entityId, row);
+		}
+	}
+
+	const activeEntityIds = new Set<string>();
 	const fragment = document.createDocumentFragment();
 	for (const player of players) {
-		const row = document.createElement("tr");
-		const positionText = player.position
-			? `${Math.round(player.position.x)}, ${Math.round(player.position.y)}, ${Math.round(player.position.z)}`
-			: "-";
+		const entityId = String(player.entityId);
+		const existingRow = rowsByEntityId.get(entityId);
+		const row = existingRow ?? createPlayerRow(player);
+		activeEntityIds.add(entityId);
 
-		row.appendChild(createCell(String(player.entityId)));
-		row.appendChild(createCell(player.name));
-		row.appendChild(createCell(String(player.level ?? "-")));
-		row.appendChild(createCell(String(player.health ?? "-")));
-		row.appendChild(createCell(positionText));
-		row.appendChild(createCell(String(player.ping ?? "-")));
-
-		const actionsCell = document.createElement("td");
-		const actionsDiv = document.createElement("div");
-		actionsDiv.className = "player-actions";
-		actionsDiv.appendChild(
-			createPlayerActionButton("kick", player.name, "踢出"),
-		);
-		actionsDiv.appendChild(
-			createPlayerActionButton("kill", player.name, "击杀"),
-		);
-		actionsDiv.appendChild(
-			createPlayerActionButton("sayplayer", player.name, "私聊"),
-		);
-		actionsDiv.appendChild(
-			createPlayerActionButton("ban", player.name, "封禁"),
-		);
-		actionsCell.appendChild(actionsDiv);
-		row.appendChild(actionsCell);
+		if (existingRow) {
+			updatePlayerRow(existingRow, player);
+		}
 
 		fragment.appendChild(row);
 	}
+
+	for (const [entityId, row] of rowsByEntityId) {
+		if (!activeEntityIds.has(entityId)) {
+			row.remove();
+		}
+	}
+
 	playersTableBody.appendChild(fragment);
 }
 
@@ -1474,8 +1559,6 @@ const mapPreviewEl = document.getElementById(
 	"map-preview",
 ) as HTMLDivElement;
 
-let currentMapDirectory: string | null = null;
-
 selectMapDirBtn.addEventListener("click", async () => {
 	try {
 		const result = await api.selectMapDirectory();
@@ -1484,7 +1567,6 @@ selectMapDirBtn.addEventListener("click", async () => {
 			return;
 		}
 
-		currentMapDirectory = result.directory;
 		mapDirPathEl.textContent = result.directory;
 		await loadMapFiles(result.directory);
 		log(`已加载地图目录: ${result.directory}`, "event");
