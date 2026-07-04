@@ -1,6 +1,7 @@
 import { buildActionCommand, buildPlayerCommand } from "./command-builder.js";
 import { initMapViewer } from "./map-viewer.js";
 import { initResultModal } from "./result-modal.js";
+import { initServerConfigEditor } from "./server-config-editor.js";
 import { TELNET_COMMANDS } from "./telnet-commands.gen.js";
 
 type TauriUnlisten = () => void;
@@ -721,157 +722,6 @@ playersTableBody.addEventListener("click", async (event) => {
 	}
 });
 
-// --- Server Config Editing ---
-
-const selectConfigFileBtn = document.getElementById(
-	"select-config-file",
-) as HTMLButtonElement;
-const saveConfigBtn = document.getElementById(
-	"save-config",
-) as HTMLButtonElement;
-const configFilePathEl = document.getElementById(
-	"config-file-path",
-) as HTMLDivElement;
-const configForm = document.getElementById("config-form") as HTMLFormElement;
-
-let currentConfigFilePath: string | null = null;
-
-selectConfigFileBtn.addEventListener("click", async () => {
-	try {
-		const result = await api.selectServerConfigFile();
-		if (!result.success || !result.filePath) {
-			log(`选择文件失败: ${result.error}`, "error");
-			return;
-		}
-
-		currentConfigFilePath = result.filePath;
-		configFilePathEl.textContent = result.filePath;
-
-		const loadResult = await api.loadServerConfig(result.filePath);
-		if (!loadResult.success || !loadResult.config) {
-			log(`加载配置失败: ${loadResult.error}`, "error");
-			return;
-		}
-
-		renderConfigForm(loadResult.config.properties);
-		saveConfigBtn.disabled = false;
-		log(`已加载服务器配置: ${loadResult.config.properties.length} 项`, "event");
-	} catch (error) {
-		log(
-			`选择配置文件失败: ${error instanceof Error ? error.message : String(error)}`,
-			"error",
-		);
-	}
-});
-
-saveConfigBtn.addEventListener("click", async () => {
-	if (!currentConfigFilePath) return;
-
-	const updates: { name: string; value: string }[] = [];
-	configForm.querySelectorAll(".config-row").forEach((row) => {
-		const name = (row.querySelector("label") as HTMLLabelElement).textContent!;
-		const value = (row.querySelector("input") as HTMLInputElement).value;
-		updates.push({ name, value });
-	});
-
-	try {
-		const result = await api.saveServerConfig(currentConfigFilePath, updates);
-		if (result.success) {
-			log("服务器配置已保存", "event");
-		} else {
-			log(`保存配置失败: ${result.error}`, "error");
-		}
-	} catch (error) {
-		log(
-			`保存配置失败: ${error instanceof Error ? error.message : String(error)}`,
-			"error",
-		);
-	}
-});
-
-const CONFIG_PROPERTY_LABELS: Record<string, string> = {
-	ServerName: "服务器名称",
-	ServerDescription: "服务器描述",
-	ServerWebsiteURL: "服务器网站",
-	ServerPassword: "服务器密码",
-	ServerLoginConfirmationText: "登录确认文本",
-	Region: "地区",
-	Language: "语言",
-	ServerPort: "服务器端口",
-	ServerVisibility: "服务器可见性",
-	MaxPlayers: "最大玩家数",
-	MaxPlayerCount: "最大玩家数（备用）",
-	GameWorld: "游戏世界",
-	WorldGenSeed: "世界种子",
-	WorldGenSize: "世界大小",
-	GameName: "游戏名称",
-	GameDifficulty: "游戏难度",
-	BlockDamagePlayer: "玩家方块伤害",
-	BlockDamageAI: "AI 方块伤害",
-	BlockDamageAIBM: "血月 AI 方块伤害",
-	XPMultiplier: "经验倍率",
-	PlayerSafeZoneLevel: "安全区等级",
-	PlayerSafeZoneHours: "安全区时长",
-	BuildCreate: "创造模式建造",
-	DayNightLength: "昼夜长度",
-	DayLightLength: "白天长度",
-	DeathPenalty: "死亡惩罚",
-	DropOnDeath: "死亡掉落",
-	DropOnQuit: "退出掉落",
-	BloodMoonEnemyCount: "血月敌人数",
-	EnemyDifficulty: "敌人难度",
-	EnemySpawnMode: "敌人生成模式",
-	ZombiesRun: "僵尸奔跑",
-	ZombieFeralSense: "僵尸野性感知",
-	ZombieBMMove: "血月僵尸移动",
-	ZombieFeralMove: "野性僵尸移动",
-	ZombieNormalMove: "普通僵尸移动",
-	ZombieNightMove: "夜间僵尸移动",
-	EACEnabled: "反作弊启用",
-	LandClaimCount: "领地声明数",
-	LandClaimSize: "领地大小",
-	LandClaimDeadZone: "领地死区",
-	LandClaimDecayMode: "领地衰减模式",
-	LandClaimExpiryTime: "领地过期时间",
-	LandClaimOfflineDurabilityModifier: "离线耐久修正",
-	LandClaimOnlineDurabilityModifier: "在线耐久修正",
-	AirDropFrequency: "空投频率",
-	AirDropMarker: "空投标记",
-	PartySharedKillRange: "队伍共享击杀范围",
-	PlayerKillingMode: "玩家击杀模式",
-	PersistenceDirectory: "持久化目录",
-	ChatWindowEnabled: "聊天窗口启用",
-	ShowFriendPlayerOnMap: "好友地图显示",
-	CameraRestrictionMode: "相机限制模式",
-	JarRefund: "罐子返还",
-	AISmellMode: "AI 嗅觉模式",
-};
-
-function renderConfigForm(properties: { name: string; value: string }[]): void {
-	while (configForm.firstChild) {
-		configForm.removeChild(configForm.firstChild);
-	}
-
-	for (const property of properties) {
-		const row = document.createElement("div");
-		row.className = "config-row";
-
-		const label = document.createElement("label");
-		label.textContent = CONFIG_PROPERTY_LABELS[property.name] ?? property.name;
-		label.title = property.name;
-
-		const input = document.createElement("input");
-		input.type = "text";
-		input.value = property.value;
-		input.dataset.name = property.name;
-		input.title = property.name;
-
-		row.appendChild(label);
-		row.appendChild(input);
-		configForm.appendChild(row);
-	}
-}
-
 api.onServerEvent((event) => {
 	switch (event.type) {
 		case "connected":
@@ -1494,4 +1344,5 @@ api
 // Disable command controls until a connection is established.
 updateCommandControls(false);
 
+initServerConfigEditor({ api, log });
 initMapViewer({ api, log, clearElement });
