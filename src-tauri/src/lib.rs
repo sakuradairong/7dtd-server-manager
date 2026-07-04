@@ -1161,6 +1161,33 @@ fn chrono_like_timestamp() -> String {
     format!("unix-{}", seconds_since_epoch)
 }
 
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tauri::Builder::default()
+        .manage(Mutex::new(AppState::default()))
+        .invoke_handler(tauri::generate_handler![
+            connect,
+            disconnect,
+            get_state,
+            send_command,
+            api_call,
+            get_log_directory,
+            open_log_directory,
+            select_server_config_file,
+            select_map_directory,
+            get_map_files,
+            read_map_image,
+            load_server_config,
+            save_server_config,
+            get_profiles,
+            save_profile,
+            delete_profile,
+            get_last_used_profile,
+            set_last_used_profile
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1313,32 +1340,4 @@ mod tests {
         assert_eq!(result.command, "listplayers");
         assert!(result.response.contains("Alice"));
     }
-}
-
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
-    tauri::Builder::default()
-        .manage(Mutex::new(AppState::default()))
-        .invoke_handler(tauri::generate_handler![
-            connect,
-            disconnect,
-            get_state,
-            send_command,
-            api_call,
-            get_log_directory,
-            open_log_directory,
-            select_server_config_file,
-            select_map_directory,
-            get_map_files,
-            read_map_image,
-            load_server_config,
-            save_server_config,
-            get_profiles,
-            save_profile,
-            delete_profile,
-            get_last_used_profile,
-            set_last_used_profile
-        ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
 }
