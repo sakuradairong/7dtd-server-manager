@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 安全问题报告
+    url: https://github.com/sakuradairong/7dtd-server-manager/security/advisories/new
+    about: 请使用私密安全通报报告漏洞，不要公开披露可利用细节。
+  - name: 支持说明
+    url: https://github.com/sakuradairong/7dtd-server-manager/blob/main/SUPPORT.md
+    about: 提问前请先阅读支持范围和信息收集建议。

@@ -339,6 +339,20 @@
                   >
                     👁️ 侦察尸群
                   </button>
+                  <button class="cmd-btn" data-action="listents">
+                    🧭 实体列表
+                  </button>
+                  <button
+                    class="cmd-btn"
+                    data-action="loggamestate"
+                    data-prompt="日志标记 [true|false]，例如: pre-restart true"
+                    data-quote-prompt="false"
+                  >
+                    📝 记录状态
+                  </button>
+                  <button class="cmd-btn" data-action="chunkcache">
+                    🧱 区块缓存
+                  </button>
                   <button class="cmd-btn" data-action="rendermap">
                     🗺️ 渲染地图
                   </button>
@@ -363,14 +377,16 @@
                   <button
                     class="cmd-btn"
                     data-action="settime"
-                    data-prompt="时间（day/night/时间值）"
+                    data-prompt="时间参数，例如: day 7 12:00"
+                    data-quote-prompt="false"
                   >
                     🌅 设置时间
                   </button>
                   <button
                     class="cmd-btn"
                     data-action="weather"
-                    data-prompt="天气设置"
+                    data-prompt="天气参数，例如: rain 0"
+                    data-quote-prompt="false"
                   >
                     🌦️ 天气
                   </button>
@@ -378,12 +394,54 @@
                   <button class="cmd-btn" data-action="version">
                     ℹ️ 版本信息
                   </button>
+                  <button class="cmd-btn" data-action="listthreads">
+                    🧵 线程列表
+                  </button>
                   <button
                     class="cmd-btn"
                     data-action="help"
                     data-prompt="命令名（可选）"
+                    data-quote-prompt="false"
                   >
                     ❓ 命令帮助
+                  </button>
+                </div>
+              </div>
+
+              <div class="card category-card">
+                <div class="card-header">
+                  <span class="card-icon">📣</span>
+                  <div>
+                    <h3>公告与配置</h3>
+                    <p>广播消息、查看和修改游戏参数</p>
+                  </div>
+                </div>
+                <div class="action-grid compact">
+                  <button
+                    class="cmd-btn"
+                    data-action="say"
+                    data-prompt="公告内容"
+                  >
+                    📣 全服公告
+                  </button>
+                  <button
+                    class="cmd-btn"
+                    data-action="getgamepref"
+                    data-prompt="过滤关键词（可选）"
+                    data-quote-prompt="false"
+                  >
+                    🔎 查询参数
+                  </button>
+                  <button
+                    class="cmd-btn"
+                    data-action="setgamepref"
+                    data-prompt="参数名 值，例如: ServerMaxPlayerCount 8"
+                    data-quote-prompt="false"
+                  >
+                    🛠️ 修改参数
+                  </button>
+                  <button class="cmd-btn" data-action="exportcurrentconfigs">
+                    📤 导出配置
                   </button>
                 </div>
               </div>

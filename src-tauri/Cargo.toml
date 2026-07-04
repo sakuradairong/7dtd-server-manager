@@ -2,8 +2,11 @@
 name = "sevendtd-server-manager"
 version = "1.0.0"
 description = "A desktop management tool for 7 Days to Die dedicated servers via Telnet/RCON"
-authors = [""]
+authors = ["7dtd-server-manager contributors"]
 edition = "2021"
+license = "MIT"
+repository = "https://github.com/sakuradairong/7dtd-server-manager"
+homepage = "https://github.com/sakuradairong/7dtd-server-manager#readme"
 
 [lib]
 name = "sevendtd_server_manager_lib"

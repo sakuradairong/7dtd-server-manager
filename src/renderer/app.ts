@@ -1,3 +1,4 @@
+import { buildActionCommand, buildPlayerCommand } from "./command-builder.js";
 import { TELNET_COMMANDS } from "./telnet-commands.gen.js";
 
 type TauriUnlisten = () => void;
@@ -201,16 +202,18 @@ function getLogText(): string {
 		.join("\n");
 }
 
-function clearLog(): void {
-	while (logOutput.firstChild) {
-		logOutput.removeChild(logOutput.firstChild);
+function clearElement(element: Element): void {
+	while (element.firstChild) {
+		element.removeChild(element.firstChild);
 	}
 }
 
+function clearLog(): void {
+	clearElement(logOutput);
+}
+
 function clearPlayersTable(): void {
-	while (playersTableBody.firstChild) {
-		playersTableBody.removeChild(playersTableBody.firstChild);
-	}
+	clearElement(playersTableBody);
 }
 
 function updateCommandControls(enabled: boolean): void {
@@ -380,16 +383,15 @@ document.querySelectorAll(".action-btn, .cmd-btn").forEach((button) => {
 			return;
 		}
 
-		let command = action;
-		if (fixedArgs) {
-			command = `${action} ${fixedArgs}`;
-		} else if (promptLabel) {
-			const value = window.prompt(promptLabel);
-			if (value === null) return;
-			command = value.trim()
-				? `${action} "${escapeArgument(value.trim())}"`
-				: action;
-		}
+		const promptValue = promptLabel ? window.prompt(promptLabel) : undefined;
+		if (promptValue === null) return;
+
+		const command = buildActionCommand({
+			action,
+			fixedArgs,
+			promptValue,
+			quotePrompt: btn.dataset.quotePrompt !== "false",
+		});
 
 		log(`> ${command}`, "command");
 		const result = await api.sendCommand(command);
@@ -494,11 +496,12 @@ function createCell(text: string): HTMLTableCellElement {
 function createPlayerActionButton(
 	action: string,
 	playerName: string,
+	label: string,
 ): HTMLButtonElement {
 	const button = document.createElement("button");
 	button.dataset.action = action;
 	button.dataset.player = playerName;
-	button.textContent = action === "kick" ? "踢出" : "击杀";
+	button.textContent = label;
 	return button;
 }
 
@@ -546,8 +549,18 @@ function renderPlayers(
 		const actionsCell = document.createElement("td");
 		const actionsDiv = document.createElement("div");
 		actionsDiv.className = "player-actions";
-		actionsDiv.appendChild(createPlayerActionButton("kick", player.name));
-		actionsDiv.appendChild(createPlayerActionButton("kill", player.name));
+		actionsDiv.appendChild(
+			createPlayerActionButton("kick", player.name, "踢出"),
+		);
+		actionsDiv.appendChild(
+			createPlayerActionButton("kill", player.name, "击杀"),
+		);
+		actionsDiv.appendChild(
+			createPlayerActionButton("sayplayer", player.name, "私聊"),
+		);
+		actionsDiv.appendChild(
+			createPlayerActionButton("ban", player.name, "封禁"),
+		);
 		actionsCell.appendChild(actionsDiv);
 		row.appendChild(actionsCell);
 
@@ -559,16 +572,21 @@ function renderPlayers(
 			const action = (button as HTMLButtonElement).dataset.action!;
 			const playerName = (button as HTMLButtonElement).dataset.player!;
 
-			let command = action;
+			let promptValue: string | null | undefined;
 			if (action === "kick") {
-				const reason = window.prompt(`踢出 ${playerName} 的原因:`);
-				command = reason
-					? `kick "${escapeArgument(playerName)}" "${escapeArgument(reason)}"`
-					: `kick "${escapeArgument(playerName)}"`;
-			} else if (action === "kill") {
-				command = `kill "${escapeArgument(playerName)}"`;
+				promptValue = window.prompt(`踢出 ${playerName} 的原因（可选）:`);
+				if (promptValue === null) return;
+			} else if (action === "sayplayer") {
+				promptValue = window.prompt(`发送给 ${playerName} 的私聊内容:`);
+				if (promptValue === null || !promptValue.trim()) return;
+			} else if (action === "ban") {
+				promptValue = window.prompt(
+					`封禁 ${playerName} 的时长/单位/原因，例如: 2 hours griefing`,
+				);
+				if (promptValue === null) return;
 			}
 
+			const command = buildPlayerCommand(action, playerName, promptValue);
 			log(`> ${command}`, "command");
 			const result = await api.sendCommand(command);
 
@@ -580,10 +598,6 @@ function renderPlayers(
 			}
 		});
 	});
-}
-
-function escapeArgument(text: string): string {
-	return text.replace(/"/g, '""');
 }
 
 // --- Server Config Editing ---
@@ -1078,25 +1092,25 @@ const COMMAND_CATEGORIES: Record<string, string> = {
 };
 
 const CATEGORY_LABELS: Record<string, string> = {
-	"玩家管理": "玩家管理",
-	"权限管理": "权限管理",
-	"世界管理": "世界管理",
-	"实体控制": "实体控制",
-	"玩家状态": "玩家状态",
-	"游戏设置": "游戏设置",
-	"调试与性能": "调试与性能",
-	"通信": "通信",
-	"查询与列表": "查询与列表",
+	玩家管理: "玩家管理",
+	权限管理: "权限管理",
+	世界管理: "世界管理",
+	实体控制: "实体控制",
+	玩家状态: "玩家状态",
+	游戏设置: "游戏设置",
+	调试与性能: "调试与性能",
+	通信: "通信",
+	查询与列表: "查询与列表",
 	"AI 与 Director": "AI 与 Director",
-	"视觉与渲染": "视觉与渲染",
-	"音频": "音频",
-	"网络": "网络",
-	"动态网格": "动态网格",
+	视觉与渲染: "视觉与渲染",
+	音频: "音频",
+	网络: "网络",
+	动态网格: "动态网格",
 	"SCore / Mod": "SCore / Mod",
-	"BeyondStorage": "BeyondStorage",
+	BeyondStorage: "BeyondStorage",
 	"Discord / Twitch": "Discord / Twitch",
-	"NaiwaziBot": "NaiwaziBot",
-	"其他": "其他",
+	NaiwaziBot: "NaiwaziBot",
+	其他: "其他",
 };
 
 const commandSearchInput = document.getElementById(
@@ -1105,9 +1119,7 @@ const commandSearchInput = document.getElementById(
 const commandCategorySelect = document.getElementById(
 	"command-category",
 ) as HTMLSelectElement;
-const commandListEl = document.getElementById(
-	"command-list",
-) as HTMLDivElement;
+const commandListEl = document.getElementById("command-list") as HTMLDivElement;
 const commandDetailEl = document.getElementById(
 	"command-detail",
 ) as HTMLDivElement;
@@ -1156,7 +1168,7 @@ function renderCommandList(): void {
 		return matchesSearch && matchesCategory;
 	});
 
-	commandListEl.innerHTML = "";
+	clearElement(commandListEl);
 	commandCountEl.textContent = `${filtered.length} / ${commandEntries.length}`;
 
 	if (filtered.length === 0) {
@@ -1187,7 +1199,7 @@ function selectCommand(name: string): void {
 	const entry = commandEntries.find((e) => e.name === name);
 	if (!entry) return;
 
-	commandDetailEl.innerHTML = "";
+	clearElement(commandDetailEl);
 
 	const nameEl = document.createElement("div");
 	nameEl.className = "command-detail-name";

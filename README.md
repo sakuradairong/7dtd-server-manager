@@ -1,5 +1,8 @@
 # 7 Days to Die 服务器管理工具
 
+[![CI](https://github.com/sakuradairong/7dtd-server-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/sakuradairong/7dtd-server-manager/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 基于 Tauri + TypeScript 的 7 Days to Die 专用服务器桌面管理工具，通过 Telnet 协议连接服务器进行管理。
 
 > 当前项目以 Tauri 版本为准：`src-tauri/` 是桌面后端入口，`src/renderer/` 是前端 UI。旧 Electron 启动、打包脚本和依赖已移除。
@@ -73,7 +76,9 @@ npm run dist:win
 npm run tauri:build:win
 ```
 
-Tauri 打包结果位于 `src-tauri/target/`。Windows 交叉构建需要 Rust `x86_64-pc-windows-gnu` target、`mingw-w64` 和 `nsis`。
+Tauri 打包结果位于 `src-tauri/target/`。
+Windows 交叉构建需要 Rust `x86_64-pc-windows-gnu` target、
+`mingw-w64` 和 `nsis`。
 
 ## 使用说明
 
@@ -104,7 +109,27 @@ Tauri 打包结果位于 `src-tauri/target/`。Windows 交叉构建需要 Rust `
 - 不要将服务器密码硬编码在代码中
 - 仅在受信任的网络环境中使用 Telnet 连接
 - 建议通过 VPN 或本地网络管理服务器
+- 安全漏洞请按 [SECURITY.md](SECURITY.md) 私下报告
+- 不要在公开 issue 中披露可利用细节
+
+## 贡献
+
+欢迎提交 issue 和 pull request。开始前请阅读：
+
+- [CONTRIBUTING.md](CONTRIBUTING.md) — 本地开发、测试和提交流程
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — 社区行为准则
+- [SUPPORT.md](SUPPORT.md) — 支持范围和提问建议
+
+## CI
+
+本项目使用 GitHub Actions 运行：
+
+- Node.js/Jest 测试
+- renderer 构建
+- Rust `cargo fmt --check`
+- Rust `cargo clippy -- -D warnings`
+- Rust/Tauri 后端测试
 
 ## 许可证
 
-MIT
+本项目基于 [MIT License](LICENSE) 开源。

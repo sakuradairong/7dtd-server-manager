@@ -2,6 +2,18 @@
   "name": "7dtd-server-manager",
   "version": "1.0.0",
   "description": "A Tauri desktop management tool for 7 Days to Die dedicated servers via Telnet/RCON",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sakuradairong/7dtd-server-manager.git"
+  },
+  "bugs": {
+    "url": "https://github.com/sakuradairong/7dtd-server-manager/issues"
+  },
+  "homepage": "https://github.com/sakuradairong/7dtd-server-manager#readme",
+  "private": true,
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "build": "npm run build:renderer",
     "build:renderer": "rm -rf dist/renderer && npm run generate:telnet-commands && tsc -p tsconfig.renderer.json && npm run copy-assets",
@@ -28,7 +40,7 @@
     "rcon",
     "tauri"
   ],
-  "author": "",
+  "author": "7dtd-server-manager contributors",
   "license": "MIT",
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.4",
