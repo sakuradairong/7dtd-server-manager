@@ -9,3 +9,4 @@ src-tauri/gen/
 .idea/
 coverage/
 src/renderer/telnet-commands.gen.ts
+.omo/

@@ -1,4 +1,7 @@
 use base64::{engine::general_purpose, Engine};
+use quick_xml::events::{BytesStart, Event};
+use quick_xml::reader::Reader;
+use quick_xml::writer::Writer;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -15,9 +18,64 @@ const DEFAULT_TIMEOUT_MS: u64 = 10_000;
 const DEFAULT_COMMAND_TIMEOUT_MS: u64 = 10_000;
 const DEFAULT_SILENCE_MS: u64 = 200;
 
+const MAP_IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "bmp", "gif", "webp"];
+
+fn has_path_traversal(path: &std::path::Path) -> bool {
+    path.components()
+        .any(|component| component == std::path::Component::ParentDir)
+}
+
+fn validate_absolute_path(path: &str) -> Result<PathBuf, String> {
+    if path.is_empty() {
+        return Err("Path is empty".to_string());
+    }
+    let path = PathBuf::from(path);
+    if !path.is_absolute() {
+        return Err("Path must be absolute".to_string());
+    }
+    if has_path_traversal(&path) {
+        return Err("Path contains traversal components".to_string());
+    }
+    Ok(path)
+}
+
+fn validate_xml_file(path: &str) -> Result<PathBuf, String> {
+    let path = validate_absolute_path(path)?;
+    match path.extension().and_then(|ext| ext.to_str()) {
+        Some(ext) if ext.eq_ignore_ascii_case("xml") => Ok(path),
+        _ => Err("Config file must have .xml extension".to_string()),
+    }
+}
+
+fn validate_image_file(path: &str) -> Result<PathBuf, String> {
+    let path = validate_absolute_path(path)?;
+    match path.extension().and_then(|ext| ext.to_str()) {
+        Some(ext)
+            if MAP_IMAGE_EXTENSIONS
+                .iter()
+                .any(|valid| ext.eq_ignore_ascii_case(valid)) =>
+        {
+            Ok(path)
+        }
+        _ => Err(format!(
+            "Map image must be one of: {}",
+            MAP_IMAGE_EXTENSIONS.join(", ")
+        )),
+    }
+}
+
+fn validate_directory(path: &str) -> Result<PathBuf, String> {
+    let path = validate_absolute_path(path)?;
+    if !path.is_dir() {
+        return Err("Path is not a directory".to_string());
+    }
+    Ok(path)
+}
+
 #[derive(Default)]
 struct AppState {
     connection: Option<TelnetConnection>,
+    last_error: Option<String>,
 }
 
 type SharedState = Mutex<AppState>;
@@ -105,6 +163,17 @@ struct PlayerInfo {
     level: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     ping: Option<i64>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EntityInfo {
+    entity_id: i64,
+    entity_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    position: Option<Position>,
 }
 
 #[derive(Clone, Serialize)]
@@ -459,6 +528,7 @@ async fn connect(config: ServerConfig, app: AppHandle) -> Result<Value, String> 
             let state_snapshot = connection.state.clone();
             if let Ok(mut guard) = state.lock() {
                 guard.connection = Some(connection);
+                guard.last_error = None;
             }
             emit_server_event(&app, json!({ "type": "connected" }));
             emit_server_event(&app, json!({ "type": "authenticated" }));
@@ -469,12 +539,18 @@ async fn connect(config: ServerConfig, app: AppHandle) -> Result<Value, String> 
         Ok(Err(error)) => {
             log_line(&app, format!("Connection failed: {}", error), "error");
             emit_server_event(&app, json!({ "type": "error", "message": error }));
+            if let Ok(mut guard) = state.lock() {
+                guard.last_error = Some(error.clone());
+            }
             let diagnostics = diagnostics.lock().expect("diagnostics lock").clone();
             Ok(json!({ "success": false, "error": error, "diagnostics": diagnostics }))
         }
         Err(error) => {
             log_line(&app, format!("Connection failed: {}", error), "error");
             emit_server_event(&app, json!({ "type": "error", "message": error }));
+            if let Ok(mut guard) = state.lock() {
+                guard.last_error = Some(error.clone());
+            }
             let diagnostics = diagnostics.lock().expect("diagnostics lock").clone();
             Ok(json!({ "success": false, "error": error, "diagnostics": diagnostics }))
         }
@@ -488,6 +564,7 @@ fn disconnect(app: AppHandle, state: State<'_, SharedState>) -> Value {
             connection.disconnect();
         }
         guard.connection = None;
+        guard.last_error = None;
     }
     log_line(&app, "Disconnected from server", "event");
     emit_server_event(&app, json!({ "type": "disconnected" }));
@@ -499,11 +576,16 @@ fn get_state(state: State<'_, SharedState>) -> ConnectionState {
     state
         .lock()
         .ok()
-        .and_then(|guard| {
+        .map(|guard| {
             guard
                 .connection
                 .as_ref()
                 .map(|connection| connection.state.clone())
+                .unwrap_or(ConnectionState {
+                    connected: false,
+                    authenticated: false,
+                    last_error: guard.last_error.clone(),
+                })
         })
         .unwrap_or(ConnectionState {
             connected: false,
@@ -566,6 +648,124 @@ async fn send_command(command: String, app: AppHandle) -> Result<Value, String> 
     }
 }
 
+fn api_list_players(state: &State<'_, SharedState>, app: &AppHandle) -> Value {
+    match send_raw_with_options(state, "listplayers", 15_000, 400) {
+        Ok(result) => {
+            let players = parse_list_players(&result.response);
+            log_line(
+                app,
+                format!("API result: listPlayers = {} players", players.len()),
+                "response",
+            );
+            json!({ "success": true, "data": players })
+        }
+        Err(error) => {
+            log_line(app, format!("API error (listPlayers): {}", error), "error");
+            json!({ "success": false, "error": error })
+        }
+    }
+}
+
+fn api_list_player_ids(state: &State<'_, SharedState>, app: &AppHandle) -> Value {
+    match send_raw_with_options(state, "listplayerids", 10_000, 300) {
+        Ok(result) => {
+            let players = parse_list_player_ids(&result.response);
+            log_line(
+                app,
+                format!("API result: listPlayerIds = {} players", players.len()),
+                "response",
+            );
+            json!({ "success": true, "data": players })
+        }
+        Err(error) => {
+            log_line(
+                app,
+                format!("API error (listPlayerIds): {}", error),
+                "error",
+            );
+            json!({ "success": false, "error": error })
+        }
+    }
+}
+
+fn api_list_entities(state: &State<'_, SharedState>, app: &AppHandle) -> Value {
+    match send_raw_with_options(state, "listents", 15_000, 400) {
+        Ok(result) => {
+            let entities = parse_list_entities(&result.response);
+            log_line(
+                app,
+                format!("API result: listEntities = {} entities", entities.len()),
+                "response",
+            );
+            json!({ "success": true, "data": entities })
+        }
+        Err(error) => {
+            log_line(app, format!("API error (listEntities): {}", error), "error");
+            json!({ "success": false, "error": error })
+        }
+    }
+}
+
+fn api_get_time(state: &State<'_, SharedState>, app: &AppHandle) -> Value {
+    match send_raw_with_options(state, "gettime", 10_000, 300) {
+        Ok(result) => match parse_get_time(&result.response) {
+            Some(time) => {
+                log_line(app, "API result: getTime", "response");
+                json!({ "success": true, "data": time })
+            }
+            None => {
+                log_line(app, "API error (getTime): unable to parse", "error");
+                json!({ "success": false, "error": "unable to parse gettime output" })
+            }
+        },
+        Err(error) => {
+            log_line(app, format!("API error (getTime): {}", error), "error");
+            json!({ "success": false, "error": error })
+        }
+    }
+}
+
+fn api_get_version(state: &State<'_, SharedState>, app: &AppHandle) -> Value {
+    match send_raw_with_options(state, "version", 10_000, 300) {
+        Ok(result) => match parse_version(&result.response) {
+            Some(version) => {
+                log_line(app, "API result: getVersion", "response");
+                json!({ "success": true, "data": version })
+            }
+            None => {
+                log_line(app, "API error (getVersion): unable to parse", "error");
+                json!({ "success": false, "error": "unable to parse version output" })
+            }
+        },
+        Err(error) => {
+            log_line(app, format!("API error (getVersion): {}", error), "error");
+            json!({ "success": false, "error": error })
+        }
+    }
+}
+
+fn api_get_game_preferences(state: &State<'_, SharedState>, app: &AppHandle) -> Value {
+    match send_raw_with_options(state, "getgamepref", 10_000, 300) {
+        Ok(result) => {
+            let prefs = parse_game_preferences(&result.response);
+            log_line(
+                app,
+                format!("API result: getGamePreferences = {} prefs", prefs.len()),
+                "response",
+            );
+            json!({ "success": true, "data": prefs })
+        }
+        Err(error) => {
+            log_line(
+                app,
+                format!("API error (getGamePreferences): {}", error),
+                "error",
+            );
+            json!({ "success": false, "error": error })
+        }
+    }
+}
+
 #[tauri::command]
 async fn api_call(method: String, args: Vec<Value>, app: AppHandle) -> Result<Value, String> {
     let app_for_task = app.clone();
@@ -586,25 +786,12 @@ async fn api_call(method: String, args: Vec<Value>, app: AppHandle) -> Result<Va
 
         let state = app_for_task.state::<SharedState>();
         match method.as_str() {
-            "listPlayers" => match send_raw_with_options(&state, "listplayers", 15_000, 400) {
-                Ok(result) => {
-                    let players = parse_list_players(&result.response);
-                    log_line(
-                        &app_for_task,
-                        format!("API result: listPlayers = {} players", players.len()),
-                        "response",
-                    );
-                    json!({ "success": true, "data": players })
-                }
-                Err(error) => {
-                    log_line(
-                        &app_for_task,
-                        format!("API error (listPlayers): {}", error),
-                        "error",
-                    );
-                    json!({ "success": false, "error": error })
-                }
-            },
+            "listPlayers" => api_list_players(&state, &app_for_task),
+            "listPlayerIds" => api_list_player_ids(&state, &app_for_task),
+            "listEntities" => api_list_entities(&state, &app_for_task),
+            "getTime" => api_get_time(&state, &app_for_task),
+            "getVersion" => api_get_version(&state, &app_for_task),
+            "getGamePreferences" => api_get_game_preferences(&state, &app_for_task),
             _ => {
                 json!({ "success": false, "error": format!("Unknown method: {}", method) })
             }
@@ -630,6 +817,23 @@ fn open_log_directory(app: AppHandle) -> Value {
 }
 
 #[tauri::command]
+fn save_log(text: String) -> Value {
+    match rfd::FileDialog::new().save_file() {
+        Some(path) => {
+            let path_str = path.to_string_lossy();
+            match validate_absolute_path(&path_str) {
+                Ok(validated) => match fs::write(&validated, text) {
+                    Ok(()) => json!({ "success": true }),
+                    Err(error) => json!({ "success": false, "error": error.to_string() }),
+                },
+                Err(error) => json!({ "success": false, "error": error }),
+            }
+        }
+        None => json!({ "success": false, "error": "No file selected" }),
+    }
+}
+
+#[tauri::command]
 fn select_server_config_file() -> Value {
     match rfd::FileDialog::new()
         .add_filter("XML Files", &["xml"])
@@ -651,12 +855,11 @@ fn select_map_directory() -> Value {
 
 #[tauri::command]
 fn get_map_files(directory: String) -> Value {
-    let dir = PathBuf::from(&directory);
-    if !dir.is_dir() {
-        return json!({ "success": false, "error": "Invalid directory" });
-    }
+    let dir = match validate_directory(&directory) {
+        Ok(path) => path,
+        Err(error) => return json!({ "success": false, "error": error }),
+    };
 
-    let extensions = ["png", "jpg", "jpeg", "bmp", "gif", "webp"];
     let mut files = Vec::new();
 
     match fs::read_dir(&dir) {
@@ -665,7 +868,7 @@ fn get_map_files(directory: String) -> Value {
                 let path = entry.path();
                 if let Some(ext) = path.extension() {
                     let ext = ext.to_string_lossy().to_lowercase();
-                    if extensions.contains(&ext.as_str()) {
+                    if MAP_IMAGE_EXTENSIONS.contains(&ext.as_str()) {
                         if let Some(name) = path.file_name() {
                             files.push(json!({
                                 "name": name.to_string_lossy(),
@@ -688,9 +891,14 @@ fn get_map_files(directory: String) -> Value {
 
 #[tauri::command]
 fn read_map_image(file_path: String) -> Value {
-    match fs::read(&file_path) {
+    let path = match validate_image_file(&file_path) {
+        Ok(path) => path,
+        Err(error) => return json!({ "success": false, "error": error }),
+    };
+
+    match fs::read(&path) {
         Ok(data) => {
-            let ext = PathBuf::from(&file_path)
+            let ext = path
                 .extension()
                 .and_then(|e| e.to_str())
                 .unwrap_or("png")
@@ -715,7 +923,19 @@ fn read_map_image(file_path: String) -> Value {
 
 #[tauri::command]
 fn load_server_config(file_path: String, app: AppHandle) -> Value {
-    match fs::read_to_string(&file_path) {
+    let path = match validate_xml_file(&file_path) {
+        Ok(path) => path,
+        Err(error) => {
+            log_line(
+                &app,
+                format!("Rejected serverconfig.xml load: {}", error),
+                "error",
+            );
+            return json!({ "success": false, "error": error });
+        }
+    };
+
+    match fs::read_to_string(&path) {
         Ok(content) => {
             let properties = get_editable_properties(parse_config_properties(&content));
             json!({ "success": true, "config": { "filePath": file_path, "properties": properties } })
@@ -738,7 +958,19 @@ fn save_server_config(
     updates: Vec<ServerConfigUpdate>,
     app: AppHandle,
 ) -> Value {
-    match save_config_updates(&file_path, &updates) {
+    let path = match validate_xml_file(&file_path) {
+        Ok(path) => path,
+        Err(error) => {
+            log_line(
+                &app,
+                format!("Rejected serverconfig.xml save: {}", error),
+                "error",
+            );
+            return json!({ "success": false, "error": error });
+        }
+    };
+
+    match save_config_updates(&path.to_string_lossy(), &updates) {
         Ok(()) => {
             log_line(
                 &app,
@@ -928,7 +1160,13 @@ fn load_profiles(app: &AppHandle) -> Result<ProfileStorage, String> {
     }
 
     let content = fs::read_to_string(path).map_err(|error| error.to_string())?;
-    serde_json::from_str(&content).map_err(|error| error.to_string())
+    let mut storage: ProfileStorage =
+        serde_json::from_str(&content).map_err(|error| error.to_string())?;
+    for profile in &mut storage.profiles {
+        profile.password =
+            deobfuscate_password(&profile.password).unwrap_or_else(|| profile.password.clone());
+    }
+    Ok(storage)
 }
 
 fn persist_profiles(app: &AppHandle, storage: &ProfileStorage) -> Result<(), String> {
@@ -936,8 +1174,31 @@ fn persist_profiles(app: &AppHandle, storage: &ProfileStorage) -> Result<(), Str
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
-    let content = serde_json::to_string_pretty(storage).map_err(|error| error.to_string())?;
+    let encoded: ProfileStorage = ProfileStorage {
+        profiles: storage
+            .profiles
+            .iter()
+            .map(|profile| ServerProfile {
+                password: obfuscate_password(&profile.password),
+                ..profile.clone()
+            })
+            .collect(),
+        last_used_profile_id: storage.last_used_profile_id.clone(),
+    };
+    let content = serde_json::to_string_pretty(&encoded).map_err(|error| error.to_string())?;
     fs::write(path, content).map_err(|error| error.to_string())
+}
+
+fn obfuscate_password(password: &str) -> String {
+    format!("obf:{}", general_purpose::STANDARD.encode(password))
+}
+
+fn deobfuscate_password(obfuscated: &str) -> Option<String> {
+    let encoded = obfuscated.strip_prefix("obf:")?;
+    general_purpose::STANDARD
+        .decode(encoded)
+        .ok()
+        .and_then(|bytes| String::from_utf8(bytes).ok())
 }
 
 fn generate_id() -> String {
@@ -974,35 +1235,96 @@ fn save_config_updates(file_path: &str, updates: &[ServerConfigUpdate]) -> Resul
         return Err("Invalid serverconfig.xml: missing ServerSettings root".to_string());
     }
 
-    let property_re = Regex::new(r#"<property\s+([^>]*)/?>"#).map_err(|error| error.to_string())?;
-    let value_re = Regex::new(r#"value\s*=\s*"[^"]*""#).map_err(|error| error.to_string())?;
-    let updated = property_re.replace_all(&content, |captures: &regex::Captures<'_>| {
-        let full = captures
-            .get(0)
-            .map(|value| value.as_str())
-            .unwrap_or_default();
-        let attributes = captures
-            .get(1)
-            .map(|value| value.as_str())
-            .unwrap_or_default();
-        let Some(property_name) = read_xml_attribute(attributes, "name") else {
-            return full.to_string();
-        };
-        let Some(update) = updates.iter().find(|update| update.name == property_name) else {
-            return full.to_string();
-        };
-        let escaped_value = xml_escape(&update.value);
-        if value_re.is_match(full) {
-            let replacement = format!("value=\"{}\"", escaped_value);
-            value_re
-                .replace(full, regex::NoExpand(&replacement))
-                .to_string()
-        } else {
-            full.replacen("/>", &format!(" value=\"{}\"/>", escaped_value), 1)
-        }
-    });
+    let updates_by_name: std::collections::HashMap<String, String> = updates
+        .iter()
+        .map(|update| (update.name.clone(), xml_escape(&update.value)))
+        .collect();
 
-    fs::write(file_path, updated.as_bytes()).map_err(|error| error.to_string())
+    let mut reader = Reader::from_str(&content);
+    reader.config_mut().trim_text(false);
+    let mut writer = Writer::new(Vec::new());
+    let mut buf = Vec::new();
+
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(ref element)) if element.name().as_ref() == b"property" => {
+                let mut element = element.clone();
+                apply_config_update(&mut element, &updates_by_name)?;
+                writer
+                    .write_event(Event::Start(element))
+                    .map_err(|error| error.to_string())?;
+            }
+            Ok(Event::Empty(ref element)) if element.name().as_ref() == b"property" => {
+                let mut element = element.clone();
+                apply_config_update(&mut element, &updates_by_name)?;
+                writer
+                    .write_event(Event::Empty(element))
+                    .map_err(|error| error.to_string())?;
+            }
+            Ok(Event::Eof) => break,
+            Ok(event) => {
+                writer
+                    .write_event(event)
+                    .map_err(|error| error.to_string())?;
+            }
+            Err(error) => return Err(format!("Invalid serverconfig.xml: {}", error)),
+        }
+        buf.clear();
+    }
+
+    let output = String::from_utf8(writer.into_inner()).map_err(|error| error.to_string())?;
+    write_file_atomic(file_path, output.as_bytes())
+}
+
+fn apply_config_update(
+    element: &mut BytesStart,
+    updates_by_name: &std::collections::HashMap<String, String>,
+) -> Result<(), String> {
+    let name = element
+        .attributes()
+        .filter_map(|attribute| attribute.ok())
+        .find(|attribute| attribute.key.as_ref() == b"name")
+        .and_then(|attribute| String::from_utf8(attribute.value.to_vec()).ok());
+    let Some(name) = name else {
+        return Ok(());
+    };
+    let Some(value) = updates_by_name.get(&name) else {
+        return Ok(());
+    };
+
+    let mut attributes: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
+    let mut has_value = false;
+    for attribute in element.attributes().filter_map(|attribute| attribute.ok()) {
+        let key = attribute.key.as_ref().to_vec();
+        let val = if key == b"value" {
+            has_value = true;
+            value.as_bytes().to_vec()
+        } else {
+            attribute.value.to_vec()
+        };
+        attributes.push((key, val));
+    }
+
+    element.clear_attributes();
+    for (key, val) in attributes {
+        element.push_attribute((key.as_slice(), val.as_slice()));
+    }
+    if !has_value {
+        element.push_attribute(("value".as_bytes(), value.as_bytes()));
+    }
+    Ok(())
+}
+
+fn write_file_atomic(file_path: &str, data: &[u8]) -> Result<(), String> {
+    let temp_path = format!("{}.tmp", file_path);
+    let backup_path = format!("{}.bak", file_path);
+
+    fs::write(&temp_path, data).map_err(|error| format!("Failed to write temp file: {}", error))?;
+    let _ = fs::copy(file_path, &backup_path);
+    fs::rename(&temp_path, file_path)
+        .map_err(|error| format!("Failed to replace config file: {}", error))?;
+    let _ = fs::remove_file(&backup_path);
+    Ok(())
 }
 
 fn xml_escape(value: &str) -> String {
@@ -1080,9 +1402,18 @@ fn editable_property_names() -> Vec<&'static str> {
     ]
 }
 
-fn parse_list_players(response: &str) -> Vec<PlayerInfo> {
+fn normalize_response_lines(response: &str) -> Vec<String> {
     response
         .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(|line| line.to_string())
+        .collect()
+}
+
+fn parse_list_players(response: &str) -> Vec<PlayerInfo> {
+    normalize_response_lines(response)
+        .iter()
         .filter_map(|line| {
             let parts = line.split(',').map(str::trim).collect::<Vec<_>>();
             if parts.len() < 14
@@ -1134,6 +1465,109 @@ fn parse_position(text: &str) -> Option<Position> {
     }
 }
 
+fn parse_list_player_ids(response: &str) -> Vec<Value> {
+    normalize_response_lines(response)
+        .iter()
+        .filter_map(|line| {
+            let mut parts = line.splitn(2, '.');
+            let entity_id = parts.next()?.trim().parse::<i64>().ok()?;
+            let name = parts.next()?.trim();
+            Some(json!({ "entityId": entity_id, "name": name }))
+        })
+        .collect()
+}
+
+fn parse_list_entities(response: &str) -> Vec<EntityInfo> {
+    normalize_response_lines(response)
+        .iter()
+        .filter_map(|line| {
+            let parts: Vec<_> = line.split(',').map(str::trim).collect();
+            if parts.len() < 2 {
+                return None;
+            }
+            let entity_id = parts[0].parse::<i64>().ok()?;
+            let entity_type = parts[1].to_string();
+            let mut name: Option<String> = None;
+            let mut position: Option<Position> = None;
+            for part in parts.iter().skip(2) {
+                if part.is_empty() {
+                    continue;
+                }
+                if position.is_none() {
+                    if let Some(parsed) = parse_position(part) {
+                        position = Some(parsed);
+                        continue;
+                    }
+                }
+                if name.is_none()
+                    && *part != entity_type
+                    && part
+                        .chars()
+                        .next()
+                        .is_some_and(|char| char.is_alphabetic() || char == '_')
+                {
+                    name = Some(part.to_string());
+                }
+            }
+            Some(EntityInfo {
+                entity_id,
+                entity_type,
+                name,
+                position,
+            })
+        })
+        .collect()
+}
+
+fn parse_get_time(response: &str) -> Option<Value> {
+    let text = normalize_response_lines(response).join(" ");
+    let re = Regex::new(r"(?i)Day\s+(\d+),\s*(\d{1,2}:\d{2})").ok()?;
+    let captures = re.captures(&text)?;
+    let day = captures.get(1)?.as_str().parse::<i64>().ok()?;
+    let time = captures.get(2)?.as_str().to_string();
+    Some(json!({ "day": day, "time": time }))
+}
+
+fn parse_version(response: &str) -> Option<Value> {
+    let lines: Vec<String> = normalize_response_lines(response);
+    if lines.is_empty() {
+        return None;
+    }
+    let prefix = "Game version:";
+    let game_version = if lines[0].to_lowercase().starts_with(&prefix.to_lowercase()) {
+        lines[0][prefix.len()..].trim().to_string()
+    } else {
+        lines[0].clone()
+    };
+    let mods: Vec<String> = lines
+        .iter()
+        .skip(1)
+        .map(|line| {
+            if line.to_lowercase().starts_with("mod ") {
+                line[4..].trim().to_string()
+            } else {
+                line.clone()
+            }
+        })
+        .collect();
+    Some(json!({ "gameVersion": game_version, "mods": mods }))
+}
+
+fn parse_game_preferences(response: &str) -> Vec<Value> {
+    normalize_response_lines(response)
+        .iter()
+        .filter_map(|line| {
+            let index = line.find('=')?;
+            let name = line[..index].trim();
+            let value = line[index + 1..].trim();
+            if name.is_empty() || value.is_empty() {
+                return None;
+            }
+            Some(json!({ "name": name, "value": value }))
+        })
+        .collect()
+}
+
 fn current_date_string() -> String {
     let days_since_epoch = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -1162,6 +1596,7 @@ pub fn run() {
             api_call,
             get_log_directory,
             open_log_directory,
+            save_log,
             select_server_config_file,
             select_map_directory,
             get_map_files,
@@ -1199,6 +1634,62 @@ mod tests {
         assert_eq!(players[0].ping, Some(33));
         let position = players[0].position.as_ref().expect("position parsed");
         assert_eq!((position.x, position.y, position.z), (1.0, 2.0, 3.0));
+    }
+
+    #[test]
+    fn parses_list_player_ids_output() {
+        let response = "1. Alice\n2. Bob\nnot a player";
+        let players = parse_list_player_ids(response);
+        assert_eq!(players.len(), 2);
+        assert_eq!(players[0]["entityId"], 1);
+        assert_eq!(players[0]["name"], "Alice");
+        assert_eq!(players[1]["entityId"], 2);
+        assert_eq!(players[1]["name"], "Bob");
+    }
+
+    #[test]
+    fn parses_list_entities_output() {
+        let response = "1, zombie, 10 20 30\n2, animalBoar, Pumba, 5 5 5\nnot valid";
+        let entities = parse_list_entities(response);
+        assert_eq!(entities.len(), 2);
+        assert_eq!(entities[0].entity_id, 1);
+        assert_eq!(entities[0].entity_type, "zombie");
+        assert!(entities[0].name.is_none());
+        let pos = entities[0].position.as_ref().expect("position");
+        assert_eq!((pos.x, pos.y, pos.z), (10.0, 20.0, 30.0));
+        assert_eq!(entities[1].entity_id, 2);
+        assert_eq!(entities[1].entity_type, "animalBoar");
+        assert_eq!(entities[1].name.as_deref(), Some("Pumba"));
+    }
+
+    #[test]
+    fn parses_get_time_output() {
+        let response = "Day 12, 14:30";
+        let time = parse_get_time(response).expect("parsed time");
+        assert_eq!(time["day"], 12);
+        assert_eq!(time["time"], "14:30");
+    }
+
+    #[test]
+    fn parses_version_output() {
+        let response = "Game version: Alpha 21 (b324)\nMod SomeMod\nAnother line";
+        let version = parse_version(response).expect("parsed version");
+        assert_eq!(version["gameVersion"], "Alpha 21 (b324)");
+        let mods = version["mods"].as_array().expect("mods array");
+        assert_eq!(mods.len(), 2);
+        assert_eq!(mods[0], "SomeMod");
+        assert_eq!(mods[1], "Another line");
+    }
+
+    #[test]
+    fn parses_game_preferences_output() {
+        let response = "ServerName=My Server\nMaxPlayers=8\nno equals";
+        let prefs = parse_game_preferences(response);
+        assert_eq!(prefs.len(), 2);
+        assert_eq!(prefs[0]["name"], "ServerName");
+        assert_eq!(prefs[0]["value"], "My Server");
+        assert_eq!(prefs[1]["name"], "MaxPlayers");
+        assert_eq!(prefs[1]["value"], "8");
     }
 
     #[test]
@@ -1278,10 +1769,125 @@ mod tests {
     }
 
     #[test]
+    fn saves_config_updates_preserves_comments_and_adds_missing_value_attribute() {
+        let path = std::env::temp_dir().join(format!(
+            "7dtd-tauri-config-comment-test-{}.xml",
+            std::process::id()
+        ));
+        fs::write(
+            &path,
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<!-- Server configuration -->
+<ServerSettings>
+  <property name="ServerName" value="Old"/>
+  <property name="NoValueYet"/>
+</ServerSettings>
+"#,
+        )
+        .expect("write test config");
+
+        save_config_updates(
+            path.to_str().expect("utf8 temp path"),
+            &[
+                ServerConfigUpdate {
+                    name: "ServerName".to_string(),
+                    value: "New Name".to_string(),
+                },
+                ServerConfigUpdate {
+                    name: "NoValueYet".to_string(),
+                    value: "Added".to_string(),
+                },
+            ],
+        )
+        .expect("save config updates");
+
+        let saved = fs::read_to_string(&path).expect("read saved config");
+        let _ = fs::remove_file(&path);
+        assert!(saved.contains(r#"name="ServerName" value="New Name""#));
+        assert!(saved.contains(r#"name="NoValueYet" value="Added""#));
+        assert!(saved.contains("<!-- Server configuration -->"));
+        assert!(saved.contains("<ServerSettings>"));
+    }
+
+    #[test]
+    fn rejects_invalid_serverconfig_xml() {
+        let path = std::env::temp_dir().join(format!(
+            "7dtd-tauri-config-invalid-test-{}.xml",
+            std::process::id()
+        ));
+        fs::write(
+            &path,
+            "<ServerSettings><property name=\"X\" value=\"Y\"/></NotServerSettings>",
+        )
+        .expect("write test config");
+
+        let result = save_config_updates(
+            path.to_str().expect("utf8 temp path"),
+            &[ServerConfigUpdate {
+                name: "X".to_string(),
+                value: "Z".to_string(),
+            }],
+        );
+
+        let _ = fs::remove_file(&path);
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn rejects_multiline_telnet_commands() {
         assert!(validate_telnet_command("say hello").is_ok());
         assert!(validate_telnet_command("say hello\nshutdown").is_err());
         assert!(validate_telnet_command("say hello\rshutdown").is_err());
+    }
+
+    #[test]
+    fn path_validation_rejects_empty_relative_and_traversal_paths() {
+        assert!(validate_absolute_path("").is_err());
+        assert!(validate_absolute_path("serverconfig.xml").is_err());
+        assert!(validate_absolute_path("/etc/../etc/passwd").is_err());
+        assert!(validate_absolute_path("/tmp/subdir/../../etc/passwd").is_err());
+
+        let temp = std::env::temp_dir();
+        assert!(validate_absolute_path(temp.to_str().unwrap()).is_ok());
+    }
+
+    #[test]
+    fn path_validation_enforces_xml_extension() {
+        assert!(validate_xml_file("/tmp/serverconfig.xml").is_ok());
+        assert!(validate_xml_file("/tmp/serverconfig.XML").is_ok());
+        assert!(validate_xml_file("/tmp/serverconfig.json").is_err());
+        assert!(validate_xml_file("/tmp/serverconfig").is_err());
+        assert!(validate_xml_file("serverconfig.xml").is_err());
+        assert!(validate_xml_file("/etc/../etc/serverconfig.xml").is_err());
+    }
+
+    #[test]
+    fn path_validation_enforces_image_extension() {
+        for ext in ["png", "jpg", "jpeg", "bmp", "gif", "webp"] {
+            assert!(
+                validate_image_file(&format!("/tmp/map.{}", ext)).is_ok(),
+                "expected {} to be accepted",
+                ext
+            );
+        }
+        assert!(validate_image_file("/tmp/map.txt").is_err());
+        assert!(validate_image_file("/tmp/map").is_err());
+        assert!(validate_image_file("map.png").is_err());
+        assert!(validate_image_file("/etc/../etc/map.png").is_err());
+    }
+
+    #[test]
+    fn path_validation_enforces_directory() {
+        let temp = std::env::temp_dir();
+        assert!(validate_directory(temp.to_str().unwrap()).is_ok());
+
+        let file = temp.join(format!("7dtd-validation-file-{}", std::process::id()));
+        fs::write(&file, b"test").expect("write temp file");
+        let result = validate_directory(file.to_str().unwrap());
+        let _ = fs::remove_file(&file);
+        assert!(result.is_err());
+
+        assert!(validate_directory("/tmp/does/not/exist").is_err());
     }
 
     #[test]

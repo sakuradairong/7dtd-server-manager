@@ -86,7 +86,15 @@ export class ProfileManager {
 				const content = fs.readFileSync(this.filePath, "utf8");
 				const parsed = JSON.parse(content) as ProfileStorage;
 				if (Array.isArray(parsed.profiles)) {
-					return parsed;
+					return {
+						...parsed,
+						profiles: parsed.profiles.map((profile) => ({
+							...profile,
+							password:
+								deobfuscatePassword(profile.password) ??
+								profile.password,
+						})),
+					};
 				}
 			}
 		} catch (error) {
@@ -99,9 +107,16 @@ export class ProfileManager {
 	private persist(): void {
 		try {
 			fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
+			const encoded: ProfileStorage = {
+				...this.data,
+				profiles: this.data.profiles.map((profile) => ({
+					...profile,
+					password: obfuscatePassword(profile.password),
+				})),
+			};
 			fs.writeFileSync(
 				this.filePath,
-				JSON.stringify(this.data, null, 2),
+				JSON.stringify(encoded, null, 2),
 				"utf8",
 			);
 		} catch (error) {
@@ -111,5 +126,20 @@ export class ProfileManager {
 
 	private generateId(): string {
 		return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+	}
+}
+
+function obfuscatePassword(password: string): string {
+	return `obf:${Buffer.from(password, "utf8").toString("base64")}`;
+}
+
+function deobfuscatePassword(obfuscated: string): string | undefined {
+	if (!obfuscated.startsWith("obf:")) {
+		return undefined;
+	}
+	try {
+		return Buffer.from(obfuscated.slice(4), "base64").toString("utf8");
+	} catch {
+		return undefined;
 	}
 }
