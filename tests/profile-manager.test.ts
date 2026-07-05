@@ -89,4 +89,66 @@ describe("ProfileManager", () => {
 		const manager2 = new ProfileManager(tempDir);
 		expect(manager2.getProfile(profile.id)).toEqual(profile);
 	});
+
+	it("obfuscates passwords on disk while keeping them readable in memory", () => {
+		const manager = new ProfileManager(tempDir);
+		const profile = manager.saveProfile({
+			name: "Secure Server",
+			host: "127.0.0.1",
+			port: 8081,
+			password: "supersecret",
+		});
+
+		expect(manager.getProfile(profile.id)?.password).toBe("supersecret");
+
+		const raw = fs.readFileSync(path.join(tempDir, "profiles.json"), "utf8");
+		expect(raw).not.toContain("supersecret");
+		expect(raw).toContain("obf:");
+
+		const parsed = JSON.parse(raw);
+		const encodedPassword = parsed.profiles[0].password as string;
+		expect(Buffer.from(encodedPassword.slice(4), "base64").toString("utf8")).toBe(
+			"supersecret",
+		);
+	});
+
+	it("reads legacy plaintext passwords", () => {
+		fs.writeFileSync(
+			path.join(tempDir, "profiles.json"),
+			JSON.stringify(
+				{
+					profiles: [
+						{
+							id: "legacy",
+							name: "Legacy",
+							host: "127.0.0.1",
+							port: 8081,
+							password: "plaintext",
+						},
+					],
+				},
+				null,
+				2,
+			),
+		);
+
+		const manager = new ProfileManager(tempDir);
+		expect(manager.getProfile("legacy")?.password).toBe("plaintext");
+	});
+
+	it("handles corrupted profiles.json gracefully", () => {
+		fs.writeFileSync(path.join(tempDir, "profiles.json"), "not valid json {");
+
+		const manager = new ProfileManager(tempDir);
+		expect(manager.getProfiles()).toEqual([]);
+		expect(manager.getLastUsedProfile()).toBeUndefined();
+
+		const saved = manager.saveProfile({
+			name: "Recovery",
+			host: "127.0.0.1",
+			port: 8081,
+			password: "secret",
+		});
+		expect(manager.getProfile(saved.id)?.name).toBe("Recovery");
+	});
 });

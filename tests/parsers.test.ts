@@ -6,6 +6,12 @@ import {
 	parseGamePreferences,
 	parseTime,
 	parseVersion,
+	parseListKnownPlayers,
+	parseListItems,
+	parseListGameObjects,
+	parseGameStats,
+	parseOptions,
+	parseHelp,
 } from "../src/main/parsers";
 
 describe("parseListPlayers", () => {
@@ -233,5 +239,111 @@ Ban list entries:
 Banned until - UserID (name) - Reason`;
 
 		expect(parseBanList(response)).toEqual([]);
+	});
+});
+
+describe("additional command parsers", () => {
+	it("parses known players", () => {
+		const response = `1. Alice
+2. Bob
+not a player`;
+
+		expect(parseListKnownPlayers(response)).toEqual([
+			{ entityId: 1, name: "Alice" },
+			{ entityId: 2, name: "Bob" },
+		]);
+	});
+
+	it("parses item list", () => {
+		const response = `itemStoneAxe
+itemIronPickaxe
+`;
+		expect(parseListItems(response)).toEqual(["itemStoneAxe", "itemIronPickaxe"]);
+	});
+
+	it("parses game objects", () => {
+		const response = `1, terrain, 0 0 0
+2, trader, Joel, 10 20 30`;
+
+		const objects = parseListGameObjects(response);
+		expect(objects).toHaveLength(2);
+		expect(objects[0]).toEqual({
+			entityId: 1,
+			type: "terrain",
+			name: undefined,
+			position: { x: 0, y: 0, z: 0 },
+		});
+		expect(objects[1]).toEqual({
+			entityId: 2,
+			type: "trader",
+			name: "Joel",
+			position: { x: 10, y: 20, z: 30 },
+		});
+	});
+
+	it("parses game stats", () => {
+		const response = `Stat.Kills=42
+Stat.Deaths=3`;
+		expect(parseGameStats(response)).toEqual([
+			{ name: "Stat.Kills", value: "42" },
+			{ name: "Stat.Deaths", value: "3" },
+		]);
+	});
+
+	it("parses options", () => {
+		const response = `Options.Alpha=1
+Options.Beta=2`;
+		expect(parseOptions(response)).toEqual([
+			{ name: "Options.Alpha", value: "1" },
+			{ name: "Options.Beta", value: "2" },
+		]);
+	});
+
+	it("parses help output", () => {
+		const response = `help [command]
+listplayers`;
+		expect(parseHelp(response)).toEqual(["help [command]", "listplayers"]);
+	});
+});
+
+describe("negative paths", () => {
+	it("returns empty players for malformed or empty output", () => {
+		expect(parseListPlayers("")).toEqual([]);
+		expect(parseListPlayers("header line\nnot,a,player")).toEqual([]);
+		expect(parseListPlayers(",,,,,,,,,,,,")).toEqual([]);
+	});
+
+	it("returns empty player IDs for malformed output", () => {
+		expect(parseListPlayerIds("")).toEqual([]);
+		expect(parseListPlayerIds("not a player\n-1. Bad")).toEqual([]);
+	});
+
+	it("returns empty entities for malformed output", () => {
+		expect(parseListEntities("")).toEqual([]);
+		expect(parseListEntities("not an entity\n1")).toEqual([]);
+	});
+
+	it("returns empty ban list for malformed output", () => {
+		expect(parseBanList("")).toEqual([]);
+		expect(parseBanList("no duration or reason")).toEqual([]);
+	});
+
+	it("returns empty preferences for malformed output", () => {
+		expect(parseGamePreferences("")).toEqual([]);
+		expect(parseGamePreferences("no equals sign\nalso no separator")).toEqual([]);
+	});
+
+	it("returns null version for empty or unsupported output", () => {
+		expect(parseVersion("")).toBeNull();
+		expect(parseVersion("   \n   ")).toBeNull();
+	});
+
+	it("returns empty arrays for empty additional parser outputs", () => {
+		expect(parseListKnownPlayers("")).toEqual([]);
+		expect(parseListItems("")).toEqual([]);
+		expect(parseListGameObjects("")).toEqual([]);
+		expect(parseGameStats("")).toEqual([]);
+		expect(parseOptions("")).toEqual([]);
+		expect(parseHelp("")).toEqual([]);
 	});
 });

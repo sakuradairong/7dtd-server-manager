@@ -75,4 +75,29 @@ describe("ServerConfigManager", () => {
 			value: "value",
 		});
 	});
+
+	it("handles invalid XML gracefully", () => {
+		fs.writeFileSync(configFile, "<ServerSettings><unclosed>");
+		const config = manager.load(configFile);
+		expect(config.filePath).toBe(configFile);
+		expect(config.properties).toEqual([]);
+	});
+
+	it("handles XML missing ServerSettings root gracefully", () => {
+		fs.writeFileSync(
+			configFile,
+			`<?xml version="1.0" encoding="UTF-8"?>
+<NotServerSettings>
+  <property name="ServerName" value="My Server"/>
+</NotServerSettings>`,
+		);
+		const config = manager.load(configFile);
+		expect(config.properties).toEqual([]);
+	});
+
+	it("handles empty file gracefully", () => {
+		fs.writeFileSync(configFile, "");
+		const config = manager.load(configFile);
+		expect(config.properties).toEqual([]);
+	});
 });

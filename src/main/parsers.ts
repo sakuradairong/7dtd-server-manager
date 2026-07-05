@@ -250,3 +250,77 @@ export function parseVersion(
 
 	return { gameVersion, mods };
 }
+
+export function parseListKnownPlayers(
+	response: string,
+): Pick<PlayerInfo, "entityId" | "name">[] {
+	const players: Pick<PlayerInfo, "entityId" | "name">[] = [];
+	const lines = normalizeLines(response);
+
+	for (const line of lines) {
+		const match = line.match(/^(\d+)\.\s*(.+)$/);
+		if (match) {
+			players.push({
+				entityId: parseInt(match[1], 10),
+				name: match[2].trim(),
+			});
+		}
+	}
+
+	return players;
+}
+
+export function parseListItems(response: string): string[] {
+	return normalizeLines(response).filter((line) => line.length > 0);
+}
+
+export function parseListGameObjects(response: string): EntityInfo[] {
+	const entities: EntityInfo[] = [];
+	const lines = normalizeLines(response);
+
+	for (const line of lines) {
+		const parts = trimParts(line.split(","));
+		if (parts.length < 2) continue;
+
+		const entityId = parseInt(parts[0], 10);
+		if (Number.isNaN(entityId)) continue;
+
+		const type = parts[1];
+		let name: string | undefined;
+		let position: { x: number; y: number; z: number } | undefined;
+
+		for (let index = 2; index < parts.length; index += 1) {
+			const value = parts[index];
+			if (!value) continue;
+
+			const possiblePosition = parsePosition(value);
+			if (possiblePosition) {
+				position = possiblePosition;
+				continue;
+			}
+
+			const looksLikeName = /^[a-zA-Z_]/.test(value) && value !== type;
+			const hasCapitalLetter =
+				/^[A-Z]/.test(value) || /[A-Z]/.test(value.slice(1));
+			if (!name && looksLikeName && hasCapitalLetter) {
+				name = value;
+			}
+		}
+
+		entities.push({ entityId, type, name, position });
+	}
+
+	return entities;
+}
+
+export function parseGameStats(response: string): GamePreference[] {
+	return parseGamePreferences(response);
+}
+
+export function parseOptions(response: string): GamePreference[] {
+	return parseGamePreferences(response);
+}
+
+export function parseHelp(response: string): string[] {
+	return normalizeLines(response).filter((line) => line.length > 0);
+}
