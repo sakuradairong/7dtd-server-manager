@@ -21,7 +21,7 @@
   - `DEFAULT_TELNET_PORT`
   - `DEFAULT_TIMEOUT_MS`
   - `LINE_DELIMITER`
-  - `TELNET_COMMANDS`
+  - `TELNET_COMMANDS` registry with `category` metadata
   - `CommandName`
 
 ## Patterns

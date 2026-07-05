@@ -18,6 +18,7 @@
   - `set_last_used_profile`
   - `get_log_directory`
   - `open_log_directory`
+  - `save_log`
 
 ## TypeScript Reference Surface
 
@@ -46,10 +47,10 @@
 
 ## Gotchas
 
-- Profile passwords are stored in plaintext JSON under the Tauri app data directory.
+- Profile passwords are stored as base64-obfuscated JSON (`obf:<base64>`) under the Tauri app data directory, with fallback for legacy plaintext profiles. This is obfuscation, not encryption; treat the profile file as sensitive.
 - Tauri app data paths differ from legacy desktop runtime paths.
 - `serverconfig.xml` editable fields are whitelist-based.
-- Runtime Rust XML handling currently uses targeted property parsing; unusual XML formatting needs tests.
+- Runtime Rust XML handling uses `quick_xml` for structured save; unusual XML formatting needs tests.
 - Log cleanup/rotation should be revisited before large-scale use.
 
 ## Tests

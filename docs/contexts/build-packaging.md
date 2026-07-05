@@ -14,6 +14,11 @@
 - `npm test` — Jest tests
 - `npm run test:rust` — Rust backend tests
 - `npm run test:all` — Jest plus Rust tests
+- `npm run typecheck` — renderer TypeScript typecheck
+- `npm run format` — run `cargo fmt`
+- `npm run format:check` — check `cargo fmt`
+- `npm run lint` — run `cargo clippy -- -D warnings`
+- `npm run check` — typecheck + format:check + lint + test:all
 - `npm run clean` — remove generated build outputs
 
 ## Tooling
@@ -46,7 +51,6 @@
 - Tauri Windows cross-compilation from Linux is experimental and produces unsigned installers.
 - `bundle.targets` is currently `all`, so host tooling availability can affect package formats.
 - `copy-assets` copies renderer HTML/CSS only; TypeScript emits `dist/renderer/app.js`.
-- There is no ESLint setup; `lint` is intentionally not declared until tooling is added.
 - App identifier is `com.example.7dtd-server-manager`; treat as placeholder for real distribution.
 
 ## Paths

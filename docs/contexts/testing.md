@@ -11,6 +11,11 @@
 - `npm test -- --coverage`
 - `npm run test:rust`
 - `npm run test:all`
+- `npm run typecheck`
+- `npm run format`
+- `npm run format:check`
+- `npm run lint`
+- `npm run check`
 
 ## Frameworks
 
@@ -41,9 +46,8 @@
 
 ## Gotchas
 
-- There is no ESLint setup or lint script yet.
 - Jest coverage threshold is configured but only enforced when coverage is collected.
-- No CI workflow was found; local validation evidence matters.
+- GitHub Actions CI runs `npm run check` on pushes and pull requests.
 
 ## Paths
 

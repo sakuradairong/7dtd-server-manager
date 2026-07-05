@@ -10,7 +10,7 @@
 - `src-tauri/src/lib.rs`
   - `connect`, `disconnect`, `get_state`
   - `send_command`, `api_call`
-  - `get_log_directory`, `open_log_directory`
+  - `get_log_directory`, `open_log_directory`, `save_log`
   - `select_server_config_file`, `load_server_config`, `save_server_config`
   - `get_profiles`, `save_profile`, `delete_profile`
   - `get_last_used_profile`, `set_last_used_profile`
@@ -35,7 +35,8 @@
 
 - Current Telnet and filesystem operations are synchronous; long operations can occupy Tauri command threads.
 - Cross-platform file dialogs/open-directory behavior should be manually verified on target OSes.
-- Saved profiles currently store passwords in plaintext JSON under Tauri app data.
+- Saved profiles store passwords as base64-obfuscated JSON (`obf:<base64>`) with fallback for legacy plaintext profiles; this is obfuscation, not encryption.
+- Map/config/log file commands validate absolute paths, reject traversal (`..`), and restrict file extensions.
 - Tauri app data paths differ from legacy Electron `userData` paths.
 - Windows cross-build from Linux is unsigned and experimental.
 

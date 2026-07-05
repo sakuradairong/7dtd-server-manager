@@ -18,6 +18,13 @@
   - renderer state updates
   - Tauri command adapter via `window.__TAURI__.core.invoke`
   - Tauri `server-event` subscription via `window.__TAURI__.event.listen`
+  - player search/sort/select-all and batch actions
+  - log filtering, level toggles, export, and autoscroll lock
+  - command center with categories derived from `TELNET_COMMANDS`
+- `src/renderer/prompt-modal.ts`
+  - reusable modal replacements for `window.prompt`/`confirm`
+- `src/renderer/map-viewer.ts`
+  - map image file filter, loading state, zoom/pan/fit/reset
 - `src/renderer/desktop-api.d.ts`
   - renderer-side API type contract used by the UI adapter
 - `src/renderer/styles.css`
@@ -46,6 +53,8 @@
 
 - `src/renderer/index.html`
 - `src/renderer/app.ts`
+- `src/renderer/prompt-modal.ts`
+- `src/renderer/map-viewer.ts`
 - `src/renderer/desktop-api.d.ts`
 - `src/renderer/styles.css`
 - `tsconfig.renderer.json`

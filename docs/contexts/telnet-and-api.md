@@ -15,7 +15,13 @@
   - command sending and response normalization
   - connection diagnostics and password redaction
   - Rust `parse_list_players`
+  - Rust `parse_list_player_ids`
+  - Rust `parse_list_entities`
+  - Rust `parse_get_time`
+  - Rust `parse_version`
+  - Rust `parse_game_preferences`
   - Tauri commands: `connect`, `disconnect`, `send_command`, `api_call`
+  - `api_call` typed adapters: `listPlayers`, `listPlayerIds`, `listEntities`, `getTime`, `getVersion`, `getGamePreferences`
 
 ## TypeScript Reference Surface
 
@@ -34,6 +40,7 @@
   - `parseGamePreferences`
   - `parseTime`
   - `parseVersion`
+  - additional shapes: `listknownplayers`, `listitems`, `listgameobjects`, `getgamestat`, `getoptions`, `help`
 
 ## Patterns
 

@@ -50,6 +50,11 @@ Renderer DOM event → `window.__TAURI__.core.invoke()` / Tauri event listener �
 - `npm run tauri:build` or `npm run dist` — package current platform with Tauri.
 - `npm run tauri:build:win` or `npm run dist:win` — cross-build Windows GNU target (`x86_64-pc-windows-gnu`) from Linux when toolchain dependencies are installed.
 - `npm run tauri:build:debug` — build a debug Tauri package.
+- `npm run typecheck` — typecheck the renderer without emitting files (auto-generates the command registry first).
+- `npm run format` — format Rust code with `cargo fmt`.
+- `npm run format:check` — check Rust formatting.
+- `npm run lint` — run `cargo clippy -- -D warnings`.
+- `npm run check` — run `typecheck`, `format:check`, `lint`, and `test:all` in one go.
 - `npm run clean` — remove generated `dist/`, `release/`, `src-tauri/target/`, and `src-tauri/gen/`.
 
 ### Build Notes
@@ -72,7 +77,7 @@ Renderer DOM event → `window.__TAURI__.core.invoke()` / Tauri event listener �
 - Tauri command names are in `snake_case`; the renderer adapter (`createTauriApi`) maps them to a typed `DesktopApi`.
 - UI text is in Chinese; preserve it unless intentionally localizing.
 - Do not store generated files or release artifacts in source edits.
-- There is no ESLint/Prettier setup or lint script yet.
+- Rust code uses `cargo fmt`; run `cargo fmt --check` before claiming Rust changes are done.
 
 ## Testing Instructions
 
@@ -97,15 +102,16 @@ Renderer DOM event → `window.__TAURI__.core.invoke()` / Tauri event listener �
 
 - For changes touching the renderer/Tauri command boundary, run at least `npm run build`, `npm test -- --runInBand`, and `npm run test:rust`.
 - For UI behavior changes, manually validate `npm start` when possible.
-- No CI configuration was found; local command results are the main validation evidence.
+- GitHub Actions CI runs `npm run check` (and the Rust checks) on pushes and pull requests; local `npm run check` should pass before pushing.
 
 ## Security Considerations
 
-- Saved profiles include server passwords in plaintext JSON under the Tauri app data directory (`profiles.json`). Do not hardcode passwords or expose profile files.
+- Saved profiles store server passwords as base64-obfuscated JSON (`obf:<base64>`) under the Tauri app data directory (`profiles.json`), with fallback for legacy plaintext profiles. This is obfuscation, not encryption; treat the profile file as sensitive. Do not hardcode passwords or expose profile files.
 - Telnet should only be used on trusted networks/VPN/local networks, matching README security guidance.
 - Password redaction: both the Rust backend (`diagnostic_snippet`/`redact_password`) and the TypeScript `TelnetClient` replace password text with `[password redacted]` before diagnostics reach logs or the UI.
 - The Tauri CSP (`default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'`) restricts renderer resources; keep it in mind when adding external assets.
 - File dialogs (`select_server_config_file`) are filtered to XML files by default.
+- Map/config/log file commands validate absolute paths, reject traversal (`..`), and restrict file extensions to sandbox the app against unintended filesystem access.
 - Logs are written under the Tauri app data directory (`logs/`), separate from legacy Electron `userData` paths.
 
 ## Operational Risks & Gotchas
