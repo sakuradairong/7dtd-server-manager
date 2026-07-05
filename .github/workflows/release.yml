@@ -20,7 +20,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.ref_name || github.event.inputs.tag }}
+  group: release-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -82,8 +82,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name || github.event.inputs.tag }}
-          releaseName: 7dtd-server-manager ${{ github.ref_name || github.event.inputs.tag }}
+          tagName: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
+          releaseName: 7dtd-server-manager ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
           generateReleaseNotes: true
           releaseBody: |
             注意：Telnet 为明文协议，请仅在可信网络或 VPN 内使用本工具。

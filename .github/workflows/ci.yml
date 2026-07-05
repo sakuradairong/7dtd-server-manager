@@ -32,9 +32,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Generate Telnet command registry
-        run: npm run generate:telnet-commands
-
       - name: Typecheck renderer
         run: npm run typecheck
 
