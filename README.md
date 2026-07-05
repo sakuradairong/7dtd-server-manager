@@ -101,15 +101,24 @@ Windows 交叉构建需要 Rust `x86_64-pc-windows-gnu` target、
 │   └── renderer/        # Tauri 前端 UI
 ├── src-tauri/           # Tauri Rust 后端、配置和权限（桌面运行时权威入口）
 ├── tests/               # TypeScript/Jest 测试文件
+├── docs/                # 项目文档与运行手册
+│   ├── contexts/        # 子系统参考卡片
+│   └── runbooks/        # 发布、排错、安全等运行手册
 └── dist/                # 前端构建输出
 ```
+
+## 运行手册
+
+- [docs/runbooks/RELEASE.md](docs/runbooks/RELEASE.md) — 版本发布流程
+- [docs/runbooks/TROUBLESHOOTING.md](docs/runbooks/TROUBLESHOOTING.md) — 常见问题与排查
+- [docs/runbooks/SECURITY.md](docs/runbooks/SECURITY.md) — 安全边界与事件响应
 
 ## 安全提示
 
 - 不要将服务器密码硬编码在代码中
 - 仅在受信任的网络环境中使用 Telnet 连接
 - 建议通过 VPN 或本地网络管理服务器
-- 安全漏洞请按 [SECURITY.md](SECURITY.md) 私下报告
+- 安全漏洞请按 [SECURITY.md](SECURITY.md) 或 [docs/runbooks/SECURITY.md](docs/runbooks/SECURITY.md) 私下报告
 - 不要在公开 issue 中披露可利用细节
 
 ## 贡献

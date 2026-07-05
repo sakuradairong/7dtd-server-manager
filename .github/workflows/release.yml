@@ -1,6 +1,9 @@
 name: Release
 
 on:
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
       tag:
@@ -17,7 +20,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.event.inputs.tag }}
+  group: release-${{ github.ref_name || github.event.inputs.tag }}
   cancel-in-progress: false
 
 jobs:
@@ -79,12 +82,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.event.inputs.tag }}
-          releaseName: 7dtd-server-manager ${{ github.event.inputs.tag }}
+          tagName: ${{ github.ref_name || github.event.inputs.tag }}
+          releaseName: 7dtd-server-manager ${{ github.ref_name || github.event.inputs.tag }}
+          generateReleaseNotes: true
           releaseBody: |
-            请查看提交记录了解本次发布内容。
-
             注意：Telnet 为明文协议，请仅在可信网络或 VPN 内使用本工具。
-          releaseDraft: ${{ github.event.inputs.draft }}
+          releaseDraft: ${{ github.event.inputs.draft || false }}
           prerelease: false
           args: ${{ matrix.args }}
