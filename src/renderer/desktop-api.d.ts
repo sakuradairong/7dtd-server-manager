@@ -33,6 +33,7 @@ interface DesktopApi {
 	): Promise<{ success: boolean; data?: unknown; error?: string }>;
 	getLogDirectory(): Promise<string>;
 	openLogDirectory(): Promise<{ success: boolean; error?: string }>;
+	saveLog(text: string): Promise<{ success: boolean; error?: string }>;
 	selectServerConfigFile(): Promise<{
 		success: boolean;
 		filePath?: string;

@@ -826,6 +826,83 @@ button:disabled {
 	padding: 3rem;
 }
 
+.players-toolbar-card {
+	grid-column: span 12;
+}
+
+.players-toolbar {
+	display: flex;
+	flex-direction: column;
+	gap: 0.75rem;
+}
+
+.players-toolbar .command-filter-row {
+	margin-bottom: 0;
+}
+
+.select-all-label {
+	display: flex;
+	align-items: center;
+	gap: 0.4rem;
+	color: var(--text);
+	font-size: 0.85rem;
+	font-weight: 800;
+	cursor: pointer;
+	user-select: none;
+	white-space: nowrap;
+}
+
+.select-all-label input[type="checkbox"] {
+	width: 16px;
+	height: 16px;
+	accent-color: var(--accent);
+	cursor: pointer;
+}
+
+.selection-count {
+	color: var(--text-muted);
+	font-size: 0.8rem;
+	font-weight: 800;
+	white-space: nowrap;
+	margin-left: auto;
+}
+
+.batch-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem;
+}
+
+.batch-action-btn {
+	min-height: 34px;
+	padding: 0.4rem 0.75rem;
+	font-size: 0.78rem;
+}
+
+.player-checkbox-cell {
+	width: 44px;
+	text-align: center;
+}
+
+.player-checkbox-cell input[type="checkbox"] {
+	width: 16px;
+	height: 16px;
+	accent-color: var(--accent);
+	cursor: pointer;
+}
+
+.sr-only {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+	border: 0;
+}
+
 /* Config */
 .config-toolbar {
 	display: flex;
@@ -870,6 +947,7 @@ button:disabled {
 .log-card {
 	padding: 0;
 	grid-column: span 12;
+	position: relative;
 }
 
 .log-toolbar {
@@ -879,6 +957,132 @@ button:disabled {
 
 .section-header .log-toolbar {
 	margin-left: auto;
+}
+
+.log-filter-card {
+	grid-column: span 12;
+	padding: 1rem;
+	margin-bottom: 1rem;
+}
+
+.log-filter-toolbar {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+	flex-wrap: wrap;
+}
+
+#log-search {
+	flex: 1;
+	min-width: 180px;
+	padding: 0.6rem 0.85rem;
+	background: var(--bg-input);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-sm);
+	color: var(--text);
+	font-size: 0.85rem;
+	outline: none;
+	transition-property: background-color, border-color, box-shadow, color;
+	transition-duration: 180ms;
+	transition-timing-function: ease;
+}
+
+#log-search:focus {
+	border-color: var(--accent);
+	box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.log-level-filters {
+	display: flex;
+	gap: 0.4rem;
+	flex-wrap: wrap;
+}
+
+.log-level-toggle {
+	display: flex;
+	align-items: center;
+	gap: 0.4rem;
+	padding: 0.4rem 0.7rem;
+	background: rgba(255, 255, 255, 0.04);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-sm);
+	color: var(--text-muted);
+	font-size: 0.78rem;
+	font-weight: 800;
+	cursor: pointer;
+	user-select: none;
+	transition-property: background-color, border-color, color, box-shadow;
+	transition-duration: 150ms;
+	transition-timing-function: ease;
+}
+
+.log-level-toggle:hover {
+	background: rgba(255, 255, 255, 0.08);
+}
+
+.log-level-toggle input[type="checkbox"] {
+	width: 14px;
+	height: 14px;
+	accent-color: var(--accent);
+	cursor: pointer;
+}
+
+.log-level-toggle.info:has(input:checked) {
+	color: #7dd3fc;
+	border-color: rgba(125, 211, 252, 0.35);
+	background: rgba(125, 211, 252, 0.1);
+}
+
+.log-level-toggle.command:has(input:checked) {
+	color: #38bdf8;
+	border-color: rgba(56, 189, 248, 0.35);
+	background: rgba(56, 189, 248, 0.1);
+}
+
+.log-level-toggle.response:has(input:checked) {
+	color: #86efac;
+	border-color: rgba(134, 239, 172, 0.35);
+	background: rgba(134, 239, 172, 0.1);
+}
+
+.log-level-toggle.error:has(input:checked) {
+	color: #fca5a5;
+	border-color: rgba(252, 165, 165, 0.35);
+	background: rgba(252, 165, 165, 0.1);
+}
+
+.log-level-toggle.event:has(input:checked) {
+	color: #fcd34d;
+	border-color: rgba(252, 211, 77, 0.35);
+	background: rgba(252, 211, 77, 0.1);
+}
+
+.log-scroll-lock {
+	position: absolute;
+	top: 0.75rem;
+	right: 1.25rem;
+	z-index: 10;
+	display: flex;
+	align-items: center;
+	gap: 0.6rem;
+	padding: 0.45rem 0.8rem;
+	background: var(--bg-elevated);
+	border: 1px solid var(--border-glow);
+	border-radius: var(--radius-sm);
+	box-shadow: var(--shadow-soft);
+	font-size: 0.8rem;
+	font-weight: 800;
+	color: var(--accent-bright);
+}
+
+.log-scroll-lock[hidden] {
+	display: none;
+}
+
+.log-scroll-lock button {
+	min-height: 28px;
+	padding: 0.3rem 0.7rem;
+	font-size: 0.75rem;
 }
 
 #log-output {
@@ -899,6 +1103,10 @@ button:disabled {
 	margin-bottom: 0.35rem;
 }
 
+.log-entry.hidden {
+	display: none;
+}
+
 .log-entry.command {
 	color: #7dd3fc;
 }
@@ -913,6 +1121,23 @@ button:disabled {
 
 .log-entry.event {
 	color: #fcd34d;
+}
+
+@media (max-width: 900px) {
+	.log-filter-toolbar {
+		flex-direction: column;
+		align-items: stretch;
+	}
+
+	#log-search,
+	.log-level-filters,
+	#export-log {
+		width: 100%;
+	}
+
+	.log-level-filters {
+		justify-content: flex-start;
+	}
 }
 
 /* Scrollbar */
@@ -1465,6 +1690,22 @@ button:disabled {
 	font-size: 0.85rem;
 }
 
+.prompt-input {
+	width: 100%;
+	padding: 0.6rem 0.85rem;
+	background: var(--bg-input);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-sm);
+	color: var(--text);
+	font-size: 0.9rem;
+}
+
+.prompt-input:focus {
+	outline: none;
+	border-color: var(--accent-bright);
+	box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.2);
+}
+
 .map-viewer {
 	display: grid;
 	grid-template-columns: minmax(260px, 1fr) minmax(0, 2.5fr);
@@ -1491,13 +1732,32 @@ button:disabled {
 	word-break: break-all;
 }
 
+.map-file-filter {
+	width: 100%;
+	padding: 0.6rem 0.85rem;
+	background: var(--bg-input);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-sm);
+	color: var(--text);
+	font-size: 0.85rem;
+	outline: none;
+	transition-property: background-color, border-color, box-shadow, color;
+	transition-duration: 180ms;
+	transition-timing-function: ease;
+}
+
+.map-file-filter:focus {
+	border-color: var(--accent);
+	box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
 .map-file-list {
 	flex: 1;
 	overflow-y: auto;
 	display: flex;
 	flex-direction: column;
 	gap: 0.35rem;
-	max-height: 400px;
+	max-height: 360px;
 	padding-right: 0.3rem;
 }
 
@@ -1523,6 +1783,13 @@ button:disabled {
 	border-color: var(--border-glow);
 }
 
+.map-file-item.selected {
+	background: linear-gradient(135deg, var(--accent), #ff5500);
+	border-color: transparent;
+	color: white;
+	box-shadow: 0 8px 20px rgba(255, 85, 0, 0.25);
+}
+
 .map-file-empty {
 	padding: 2rem;
 	text-align: center;
@@ -1536,35 +1803,95 @@ button:disabled {
 	min-height: 520px;
 }
 
+.map-preview-controls {
+	display: flex;
+	align-items: center;
+	gap: 0.4rem;
+	margin-left: auto;
+}
+
+.map-zoom-btn {
+	min-height: 32px;
+	width: 32px;
+	padding: 0;
+	display: grid;
+	place-items: center;
+	font-size: 1.1rem;
+	font-weight: 900;
+}
+
 .map-preview {
 	flex: 1;
 	min-height: 0;
-	overflow: auto;
-	display: flex;
-	align-items: center;
-	justify-content: center;
+	position: relative;
+	overflow: hidden;
+	display: block;
 	background: rgba(0, 0, 0, 0.25);
 	border: 1px dashed var(--border);
 	border-radius: var(--radius-sm);
-	padding: 1rem;
+	cursor: grab;
+}
+
+.map-preview:active {
+	cursor: grabbing;
 }
 
 .map-preview img {
-	max-width: 100%;
-	max-height: 100%;
+	position: absolute;
+	top: 0;
+	left: 0;
+	max-width: none;
+	max-height: none;
 	object-fit: contain;
-	border-radius: var(--radius-sm);
-	cursor: zoom-in;
-	transition: transform 180ms ease;
+	transform-origin: 0 0;
+	cursor: grab;
+	transition: transform 120ms ease;
+	user-select: none;
+	-webkit-user-drag: none;
 }
 
-.map-preview img:hover {
-	transform: scale(1.02);
+.map-preview img.dragging {
+	cursor: grabbing;
+	transition: none;
 }
 
 .map-preview-empty {
+	position: absolute;
+	inset: 0;
+	display: grid;
+	place-items: center;
 	color: var(--text-subtle);
 	font-size: 0.9rem;
+	pointer-events: none;
+}
+
+.map-loading {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 0.8rem;
+	color: var(--text-muted);
+	font-size: 0.9rem;
+	font-weight: 800;
+	pointer-events: none;
+}
+
+.map-spinner {
+	width: 36px;
+	height: 36px;
+	border: 3px solid rgba(255, 255, 255, 0.1);
+	border-top-color: var(--accent);
+	border-radius: 50%;
+	animation: map-spin 1s linear infinite;
+}
+
+@keyframes map-spin {
+	to {
+		transform: rotate(360deg);
+	}
 }
 
 @media (max-width: 900px) {
@@ -1578,7 +1905,7 @@ button:disabled {
 	}
 
 	.map-file-list {
-		max-height: 280px;
+		max-height: 240px;
 	}
 }
 

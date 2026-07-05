@@ -1,8 +1,18 @@
-import { buildActionCommand, buildPlayerCommand } from "./command-builder.js";
+import {
+	buildActionCommand,
+	buildPlayerCommand,
+	quoteTelnetArgument,
+} from "./command-builder.js";
 import { initMapViewer } from "./map-viewer.js";
+import { initPromptModal } from "./prompt-modal.js";
 import { initResultModal } from "./result-modal.js";
 import { initServerConfigEditor } from "./server-config-editor.js";
 import { TELNET_COMMANDS } from "./telnet-commands.gen.js";
+import type {
+	ConnectionState,
+	PlayerInfo,
+	ServerProfile,
+} from "../common/types.js";
 
 type TauriUnlisten = () => void;
 type TauriInvoke = <T>(
@@ -51,6 +61,7 @@ function createTauriApi(): DesktopApi {
 		apiCall: (method, args) => invokeTauri("api_call", { method, args }),
 		getLogDirectory: () => invokeTauri("get_log_directory"),
 		openLogDirectory: () => invokeTauri("open_log_directory"),
+		saveLog: (text) => invokeTauri("save_log", { text }),
 		selectServerConfigFile: () => invokeTauri("select_server_config_file"),
 		loadServerConfig: (filePath) =>
 			invokeTauri("load_server_config", { filePath }),
@@ -117,9 +128,35 @@ const playersTableBody = document.querySelector(
 const refreshPlayersBtn = document.getElementById(
 	"refresh-players",
 ) as HTMLButtonElement;
+const playerSearchInput = document.getElementById(
+	"player-search",
+) as HTMLInputElement;
+const playerSortSelect = document.getElementById(
+	"player-sort",
+) as HTMLSelectElement;
+const playerSelectAllCheckbox = document.getElementById(
+	"player-select-all",
+) as HTMLInputElement;
+const playerSelectionCount = document.getElementById(
+	"player-selection-count",
+) as HTMLSpanElement;
+const batchActionButtons = Array.from(
+	document.querySelectorAll<HTMLButtonElement>(".batch-action-btn"),
+);
 const clearLogBtn = document.getElementById("clear-log") as HTMLButtonElement;
 const openLogDirBtn = document.getElementById(
 	"open-log-dir",
+) as HTMLButtonElement;
+const logSearchInput = document.getElementById("log-search") as HTMLInputElement;
+const logLevelToggles = Array.from(
+	document.querySelectorAll<HTMLInputElement>(".log-level-toggle input"),
+);
+const exportLogBtn = document.getElementById("export-log") as HTMLButtonElement;
+const logScrollLock = document.getElementById(
+	"log-scroll-lock",
+) as HTMLDivElement;
+const resumeScrollBtn = document.getElementById(
+	"resume-scroll",
 ) as HTMLButtonElement;
 const connectionDiagnostics = document.getElementById(
 	"connection-diagnostics",
@@ -134,6 +171,8 @@ const serverAddressEl = document.getElementById(
 	"server-address",
 ) as HTMLSpanElement;
 let isConnected = false;
+let currentPlayers: PlayerInfo[] = [];
+const selectedEntityIds = new Set<string>();
 const connectionDiagnosticMessages: string[] = [];
 const seenConnectionDiagnostics = new Set<string>();
 const commandHistory: string[] = [];
@@ -142,9 +181,16 @@ let commandHistoryIndex = 0;
 const MAX_LOG_ENTRIES = 500;
 let pendingScroll = false;
 
+const LOG_LEVELS = ["info", "command", "response", "error", "event"] as const;
+type LogLevel = (typeof LOG_LEVELS)[number];
+const enabledLogLevels = new Set<LogLevel>(
+	Array.from(LOG_LEVELS),
+);
+let autoScrollLocked = false;
+
 function log(
 	message: string,
-	type: "info" | "command" | "response" | "error" | "event" = "info",
+	type: LogLevel = "info",
 ): void {
 	const entry = document.createElement("div");
 	entry.className = `log-entry ${type}`;
@@ -155,7 +201,9 @@ function log(
 		logOutput.removeChild(logOutput.firstChild!);
 	}
 
-	if (!pendingScroll) {
+	applyLogFilters();
+
+	if (!pendingScroll && !autoScrollLocked) {
 		pendingScroll = true;
 		requestAnimationFrame(() => {
 			logOutput.scrollTop = logOutput.scrollHeight;
@@ -217,9 +265,10 @@ async function copyTextToClipboard(text: string): Promise<boolean> {
 }
 
 const resultModal = initResultModal({ copyTextToClipboard });
+const promptModal = initPromptModal();
 
 function getLogText(): string {
-	return Array.from(logOutput.querySelectorAll(".log-entry"))
+	return Array.from(logOutput.querySelectorAll(".log-entry:not(.hidden)"))
 		.map((entry) => entry.textContent ?? "")
 		.filter(Boolean)
 		.join("\n");
@@ -235,6 +284,62 @@ function clearLog(): void {
 	clearElement(logOutput);
 }
 
+function updateLogScrollLockIndicator(): void {
+	logScrollLock.hidden = !autoScrollLocked;
+}
+
+function isLogEntryVisible(entry: Element, search: string): boolean {
+	const type = entry.className.split(" ").find((className) =>
+		LOG_LEVELS.includes(className as LogLevel),
+	);
+	if (!type || !enabledLogLevels.has(type as LogLevel)) {
+		return false;
+	}
+	if (!search) {
+		return true;
+	}
+	const text = entry.textContent ?? "";
+	return text.toLowerCase().includes(search);
+}
+
+function applyLogFilters(): void {
+	const search = logSearchInput.value.trim().toLowerCase();
+	for (const entry of Array.from(logOutput.querySelectorAll(".log-entry"))) {
+		entry.classList.toggle(
+			"hidden",
+			!isLogEntryVisible(entry, search),
+		);
+	}
+}
+
+function scrollToLogBottom(): void {
+	logOutput.scrollTop = logOutput.scrollHeight;
+}
+
+function resumeAutoScroll(): void {
+	autoScrollLocked = false;
+	updateLogScrollLockIndicator();
+	scrollToLogBottom();
+}
+
+function handleLogScroll(): void {
+	if (logOutput.childElementCount === 0) {
+		return;
+	}
+	const threshold = 24;
+	const isNearBottom =
+		logOutput.scrollHeight -
+			logOutput.scrollTop -
+			logOutput.clientHeight <=
+		threshold;
+	if (autoScrollLocked && isNearBottom) {
+		resumeAutoScroll();
+	} else if (!autoScrollLocked && !isNearBottom) {
+		autoScrollLocked = true;
+		updateLogScrollLockIndicator();
+	}
+}
+
 function clearPlayersTable(): void {
 	clearElement(playersTableBody);
 }
@@ -246,6 +351,7 @@ function updateCommandControls(enabled: boolean): void {
 		button.disabled = !enabled;
 	}
 	renderCommandList();
+	updateBatchActionButtons();
 }
 
 function switchTab(tabId: string): void {
@@ -271,11 +377,7 @@ iconSidebar.addEventListener("click", (event) => {
 	switchTab(tabId);
 });
 
-function updateStatus(state: {
-	connected: boolean;
-	authenticated: boolean;
-	lastError?: string;
-}): void {
+function updateStatus(state: ConnectionState): void {
 	statusDot.className = "status-dot";
 
 	if (state.authenticated) {
@@ -364,6 +466,8 @@ disconnectBtn.addEventListener("click", async () => {
 	log("已断开连接", "event");
 	updateStatus({ connected: false, authenticated: false });
 	serverAddressEl.textContent = "--";
+	selectedEntityIds.clear();
+	updateSelectionUI();
 	clearPlayersTable();
 });
 
@@ -403,11 +507,13 @@ document.querySelectorAll(".action-btn, .cmd-btn").forEach((button) => {
 		const promptLabel = btn.dataset.prompt;
 		const isCmdBtn = btn.classList.contains("cmd-btn");
 
-		if (confirmMessage && !window.confirm(confirmMessage)) {
+		if (confirmMessage && !(await promptModal.confirm(confirmMessage))) {
 			return;
 		}
 
-		const promptValue = promptLabel ? window.prompt(promptLabel) : undefined;
+		const promptValue = promptLabel
+			? await promptModal.prompt(promptLabel, promptLabel)
+			: undefined;
 		if (promptValue === null) return;
 
 		const command = buildActionCommand({
@@ -484,6 +590,45 @@ copyLogBtn.addEventListener("click", async () => {
 	log(copied ? "日志已复制" : "日志为空或复制失败", copied ? "event" : "error");
 });
 
+logSearchInput.addEventListener("input", applyLogFilters);
+
+for (const toggle of logLevelToggles) {
+	toggle.addEventListener("change", () => {
+		enabledLogLevels.clear();
+		for (const input of logLevelToggles) {
+			if (input.checked) {
+				enabledLogLevels.add(input.value as LogLevel);
+			}
+		}
+		applyLogFilters();
+	});
+}
+
+exportLogBtn.addEventListener("click", async () => {
+	const text = getLogText();
+	if (!text.trim()) {
+		log("没有可导出的日志内容", "error");
+		return;
+	}
+	try {
+		const result = await api.saveLog(text);
+		if (result.success) {
+			log("日志已导出", "event");
+		} else {
+			log(`导出日志失败: ${result.error}`, "error");
+		}
+	} catch (error) {
+		log(
+			`导出日志失败: ${error instanceof Error ? error.message : String(error)}`,
+			"error",
+		);
+	}
+});
+
+logOutput.addEventListener("scroll", handleLogScroll, { passive: true });
+
+resumeScrollBtn.addEventListener("click", resumeAutoScroll);
+
 openLogDirBtn.addEventListener("click", async () => {
 	try {
 		const result = await api.openLogDirectory();
@@ -504,16 +649,15 @@ async function refreshPlayers(): Promise<void> {
 	const result = await api.apiCall("listPlayers", []);
 
 	if (result.success) {
-		renderPlayers(
-			result.data as Array<{
-				entityId: number;
-				name: string;
-				level?: number;
-				health?: number;
-				position?: { x: number; y: number; z: number };
-				ping?: number;
-			}>,
-		);
+		const players = result.data as PlayerInfo[];
+		for (const id of Array.from(selectedEntityIds)) {
+			if (!players.some((player) => String(player.entityId) === id)) {
+				selectedEntityIds.delete(id);
+			}
+		}
+		currentPlayers = players;
+		renderPlayers(currentPlayers);
+		updateSelectionUI();
 	} else {
 		log(`获取玩家列表失败: ${result.error}`, "error");
 	}
@@ -537,15 +681,6 @@ function createPlayerActionButton(
 	return button;
 }
 
-type PlayerListEntry = {
-	readonly entityId: number;
-	readonly name: string;
-	readonly level?: number;
-	readonly health?: number;
-	readonly position?: { readonly x: number; readonly y: number; readonly z: number };
-	readonly ping?: number;
-};
-
 type PlayerCellField =
 	| "entityId"
 	| "name"
@@ -554,7 +689,7 @@ type PlayerCellField =
 	| "position"
 	| "ping";
 
-function formatPlayerPosition(player: PlayerListEntry): string {
+function formatPlayerPosition(player: PlayerInfo): string {
 	return player.position
 		? `${Math.round(player.position.x)}, ${Math.round(player.position.y)}, ${Math.round(player.position.z)}`
 		: "-";
@@ -597,7 +732,7 @@ function updatePlayerActionButtons(
 
 function updatePlayerRow(
 	row: HTMLTableRowElement,
-	player: PlayerListEntry,
+	player: PlayerInfo,
 ): void {
 	setPlayerCellText(row, "entityId", String(player.entityId));
 	setPlayerCellText(row, "name", player.name);
@@ -608,9 +743,19 @@ function updatePlayerRow(
 	updatePlayerActionButtons(row, player.name);
 }
 
-function createPlayerRow(player: PlayerListEntry): HTMLTableRowElement {
+function createPlayerRow(player: PlayerInfo): HTMLTableRowElement {
 	const row = document.createElement("tr");
 	row.dataset.entityId = String(player.entityId);
+
+	const checkboxCell = document.createElement("td");
+	checkboxCell.className = "player-checkbox-cell";
+	const checkbox = document.createElement("input");
+	checkbox.type = "checkbox";
+	checkbox.dataset.batchSelect = "true";
+	checkbox.dataset.entityId = String(player.entityId);
+	checkbox.checked = selectedEntityIds.has(String(player.entityId));
+	checkboxCell.appendChild(checkbox);
+	row.appendChild(checkboxCell);
 
 	row.appendChild(createPlayerCell("entityId", String(player.entityId)));
 	row.appendChild(createPlayerCell("name", player.name));
@@ -634,20 +779,93 @@ function createPlayerRow(player: PlayerListEntry): HTMLTableRowElement {
 	return row;
 }
 
-function renderEmptyPlayersRow(): void {
+function renderEmptyPlayersRow(message = "暂无在线玩家"): void {
 	clearPlayersTable();
 	const row = document.createElement("tr");
 	row.className = "empty-row";
 	const cell = document.createElement("td");
-	cell.colSpan = 7;
-	cell.textContent = "暂无在线玩家";
+	cell.colSpan = 8;
+	cell.textContent = message;
 	row.appendChild(cell);
 	playersTableBody.appendChild(row);
 }
 
-function renderPlayers(players: readonly PlayerListEntry[]): void {
-	if (players.length === 0) {
-		renderEmptyPlayersRow();
+function getFilteredSortedPlayers(
+	players: readonly PlayerInfo[],
+): PlayerInfo[] {
+	const search = playerSearchInput.value.trim().toLowerCase();
+	const sort = playerSortSelect.value;
+
+	const filtered = players.filter((player) => {
+		if (!search) return true;
+		return (
+			player.name.toLowerCase().includes(search) ||
+			String(player.entityId).includes(search)
+		);
+	});
+
+	if (!sort) return filtered;
+
+	const sorted = [...filtered];
+	sorted.sort((a, b) => {
+		switch (sort) {
+			case "name-asc":
+				return a.name.localeCompare(b.name, "zh-CN");
+			case "name-desc":
+				return b.name.localeCompare(a.name, "zh-CN");
+			case "level-asc":
+				return compareOptionalNumbers(a.level, b.level, "asc");
+			case "level-desc":
+				return compareOptionalNumbers(a.level, b.level, "desc");
+			case "ping-asc":
+				return compareOptionalNumbers(a.ping, b.ping, "asc");
+			case "ping-desc":
+				return compareOptionalNumbers(a.ping, b.ping, "desc");
+			default:
+				return 0;
+		}
+	});
+	return sorted;
+}
+
+function compareOptionalNumbers(
+	a: number | undefined,
+	b: number | undefined,
+	direction: "asc" | "desc",
+): number {
+	const aValue =
+		a ?? (direction === "asc" ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY);
+	const bValue =
+		b ?? (direction === "asc" ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY);
+	if (aValue === bValue) return 0;
+	return direction === "asc"
+		? aValue < bValue
+			? -1
+			: 1
+		: aValue > bValue
+			? -1
+			: 1;
+}
+
+function setRowSelected(
+	row: HTMLTableRowElement,
+	selected: boolean,
+): void {
+	const checkbox = row.querySelector<HTMLInputElement>(
+		"input[data-batch-select]",
+	);
+	if (checkbox) {
+		checkbox.checked = selected;
+	}
+}
+
+function renderPlayers(players: readonly PlayerInfo[]): void {
+	const filteredPlayers = getFilteredSortedPlayers(players);
+
+	if (filteredPlayers.length === 0) {
+		renderEmptyPlayersRow(
+			playerSearchInput.value.trim() ? "没有匹配的玩家" : "暂无在线玩家",
+		);
 		return;
 	}
 
@@ -665,7 +883,7 @@ function renderPlayers(players: readonly PlayerListEntry[]): void {
 
 	const activeEntityIds = new Set<string>();
 	const fragment = document.createDocumentFragment();
-	for (const player of players) {
+	for (const player of filteredPlayers) {
 		const entityId = String(player.entityId);
 		const existingRow = rowsByEntityId.get(entityId);
 		const row = existingRow ?? createPlayerRow(player);
@@ -674,6 +892,7 @@ function renderPlayers(players: readonly PlayerListEntry[]): void {
 		if (existingRow) {
 			updatePlayerRow(existingRow, player);
 		}
+		setRowSelected(row, selectedEntityIds.has(entityId));
 
 		fragment.appendChild(row);
 	}
@@ -685,7 +904,167 @@ function renderPlayers(players: readonly PlayerListEntry[]): void {
 	}
 
 	playersTableBody.appendChild(fragment);
+	updateSelectAllCheckboxState();
 }
+
+function updateSelectionUI(): void {
+	playerSelectionCount.textContent = `已选择 ${selectedEntityIds.size} 人`;
+	updateBatchActionButtons();
+	updateSelectAllCheckboxState();
+}
+
+function updateSelectAllCheckboxState(): void {
+	const visibleEntityIds = getFilteredSortedPlayers(currentPlayers).map((player) =>
+		String(player.entityId),
+	);
+	const selectedVisibleCount = visibleEntityIds.filter((id) =>
+		selectedEntityIds.has(id),
+	).length;
+	playerSelectAllCheckbox.checked =
+		visibleEntityIds.length > 0 && selectedVisibleCount === visibleEntityIds.length;
+	playerSelectAllCheckbox.indeterminate =
+		selectedVisibleCount > 0 && selectedVisibleCount < visibleEntityIds.length;
+}
+
+function updateBatchActionButtons(): void {
+	const disabled = !isConnected || selectedEntityIds.size === 0;
+	for (const button of batchActionButtons) {
+		button.disabled = disabled;
+	}
+}
+
+function buildBatchCommand(
+	action: string,
+	playerName: string,
+	promptValue: string,
+): string {
+	switch (action) {
+		case "give-item": {
+			const trimmed = promptValue.trim();
+			const spaceIndex = trimmed.search(/\s/);
+			const itemName =
+				spaceIndex === -1 ? trimmed : trimmed.slice(0, spaceIndex);
+			const quantity =
+				spaceIndex === -1
+					? "1"
+					: trimmed.slice(spaceIndex + 1).trim() || "1";
+			return `give ${quoteTelnetArgument(playerName)} ${itemName} ${quantity}`;
+		}
+		case "give-xp":
+			return `givexp ${quoteTelnetArgument(playerName)} ${promptValue.trim()}`;
+		case "teleport":
+			return `teleport ${quoteTelnetArgument(playerName)} ${promptValue.trim()}`;
+		default:
+			return buildPlayerCommand(action, playerName, promptValue);
+	}
+}
+
+async function runBatchAction(action: string): Promise<void> {
+	if (selectedEntityIds.size === 0) return;
+
+	const selectedPlayers = currentPlayers.filter((player) =>
+		selectedEntityIds.has(String(player.entityId)),
+	);
+	if (selectedPlayers.length === 0) return;
+
+	let promptValue: string | null = null;
+
+	if (action === "kick") {
+		promptValue = await promptModal.prompt("批量踢出玩家", "踢出原因（可选）:");
+		if (promptValue === null) return;
+	} else if (action === "ban") {
+		promptValue = await promptModal.prompt(
+			"批量封禁玩家",
+			"时长/单位/原因，例如: 2 hours griefing",
+		);
+		if (promptValue === null) return;
+	} else if (action === "sayplayer") {
+		promptValue = await promptModal.prompt("批量私聊", "私聊内容:");
+		if (promptValue === null || !promptValue.trim()) return;
+	} else if (action === "give-item") {
+		promptValue = await promptModal.prompt(
+			"批量发送物品",
+			"物品名 数量，例如: meleeToolTorch 1",
+		);
+		if (promptValue === null || !promptValue.trim()) return;
+	} else if (action === "give-xp") {
+		promptValue = await promptModal.prompt("批量给予经验", "经验值:");
+		if (promptValue === null || !promptValue.trim()) return;
+	} else if (action === "teleport") {
+		promptValue = await promptModal.prompt("批量传送", "坐标 x y z:");
+		if (promptValue === null || !promptValue.trim()) return;
+	}
+
+	if (promptValue === null) return;
+
+	for (const player of selectedPlayers) {
+		const command = buildBatchCommand(action, player.name, promptValue);
+		log(`> ${command}`, "command");
+		const result = await api.sendCommand(command);
+		if (result.success) {
+			log(result.response || "操作成功", "response");
+		} else {
+			log(`错误: ${result.error}`, "error");
+		}
+	}
+
+	await refreshPlayers();
+}
+
+playerSearchInput.addEventListener("input", () => {
+	renderPlayers(currentPlayers);
+	updateSelectionUI();
+});
+
+playerSortSelect.addEventListener("change", () => {
+	renderPlayers(currentPlayers);
+	updateSelectionUI();
+});
+
+playerSelectAllCheckbox.addEventListener("change", () => {
+	const checked = playerSelectAllCheckbox.checked;
+	const visibleEntityIds = getFilteredSortedPlayers(currentPlayers).map((player) =>
+		String(player.entityId),
+	);
+	for (const entityId of visibleEntityIds) {
+		if (checked) {
+			selectedEntityIds.add(entityId);
+		} else {
+			selectedEntityIds.delete(entityId);
+		}
+	}
+	renderPlayers(currentPlayers);
+	updateSelectionUI();
+});
+
+playersTableBody.addEventListener("change", (event) => {
+	const checkbox = (event.target as HTMLElement).closest(
+		"input[data-batch-select]",
+	) as HTMLInputElement | null;
+	if (!checkbox) return;
+
+	const entityId = checkbox.dataset.entityId;
+	if (!entityId) return;
+
+	if (checkbox.checked) {
+		selectedEntityIds.add(entityId);
+	} else {
+		selectedEntityIds.delete(entityId);
+	}
+	updateSelectionUI();
+});
+
+document.querySelector(".batch-actions")?.addEventListener("click", (event) => {
+	const button = (event.target as HTMLElement).closest(
+		"button[data-batch-action]",
+	) as HTMLButtonElement | null;
+	if (!button) return;
+
+	const action = button.dataset.batchAction;
+	if (!action) return;
+
+	void runBatchAction(action);
+});
 
 playersTableBody.addEventListener("click", async (event) => {
 	const button = (event.target as HTMLElement).closest(
@@ -698,13 +1077,20 @@ playersTableBody.addEventListener("click", async (event) => {
 
 	let promptValue: string | null | undefined;
 	if (action === "kick") {
-		promptValue = window.prompt(`踢出 ${playerName} 的原因（可选）:`);
+		promptValue = await promptModal.prompt(
+			"踢出玩家",
+			`踢出 ${playerName} 的原因（可选）:`,
+		);
 		if (promptValue === null) return;
 	} else if (action === "sayplayer") {
-		promptValue = window.prompt(`发送给 ${playerName} 的私聊内容:`);
+		promptValue = await promptModal.prompt(
+			"私聊玩家",
+			`发送给 ${playerName} 的私聊内容:`,
+		);
 		if (promptValue === null || !promptValue.trim()) return;
 	} else if (action === "ban") {
-		promptValue = window.prompt(
+		promptValue = await promptModal.prompt(
+			"封禁玩家",
 			`封禁 ${playerName} 的时长/单位/原因，例如: 2 hours griefing`,
 		);
 		if (promptValue === null) return;
@@ -734,6 +1120,8 @@ api.onServerEvent((event) => {
 		case "disconnected":
 			log("服务器事件: 已断开", "event");
 			updateStatus({ connected: false, authenticated: false });
+			selectedEntityIds.clear();
+			updateSelectionUI();
 			clearPlayersTable();
 			break;
 		case "error":
@@ -767,15 +1155,7 @@ const deleteProfileBtn = document.getElementById(
 	"delete-profile",
 ) as HTMLButtonElement;
 
-interface Profile {
-	id: string;
-	name: string;
-	host: string;
-	port: number;
-	password: string;
-}
-
-let profiles: Profile[] = [];
+let profiles: ServerProfile[] = [];
 
 async function loadProfiles(): Promise<void> {
 	try {
@@ -812,7 +1192,7 @@ function populateProfileSelect(): void {
 	}
 }
 
-function fillConnectionForm(profile: Profile): void {
+function fillConnectionForm(profile: ServerProfile): void {
 	(document.getElementById("host") as HTMLInputElement).value = profile.host;
 	(document.getElementById("port") as HTMLInputElement).value = String(
 		profile.port,
@@ -858,7 +1238,8 @@ saveProfileBtn.addEventListener("click", async () => {
 		? profiles.find((p) => p.id === profileId)
 		: undefined;
 
-	const name = window.prompt(
+	const name = await promptModal.prompt(
+		"保存配置",
 		"配置文件名称:",
 		profile?.name ?? `${values.host}:${values.port}`,
 	);
@@ -891,7 +1272,7 @@ deleteProfileBtn.addEventListener("click", async () => {
 	const profileId = profileSelect.value;
 	if (!profileId) return;
 
-	if (!window.confirm("确定要删除此连接配置吗?")) return;
+	if (!(await promptModal.confirm("确定要删除此连接配置吗?"))) return;
 
 	try {
 		const result = await api.deleteProfile(profileId);
@@ -913,236 +1294,32 @@ deleteProfileBtn.addEventListener("click", async () => {
 
 // --- Command Center ---
 
-const COMMAND_CATEGORIES: Record<string, string> = {
-	admin: "玩家管理",
-	ban: "玩家管理",
-	kick: "玩家管理",
-	kickall: "玩家管理",
-	kill: "玩家管理",
-	killall: "玩家管理",
-	listplayerids: "玩家管理",
-	listplayers: "玩家管理",
-	listknownplayers: "玩家管理",
-	whitelist: "玩家管理",
-	teleportplayer: "玩家管理",
-	sayplayer: "通信",
-	showinventory: "玩家管理",
-	playerOwnedEntities: "玩家管理",
-	pplist: "玩家管理",
-	printpinfo: "玩家管理",
-	reply: "通信",
-	commandpermission: "权限管理",
-	permissionsallowed: "权限管理",
-	overridemaxplayercount: "权限管理",
-	createwebuser: "权限管理",
-	webpermission: "权限管理",
-	webtokens: "权限管理",
-	saveworld: "世界管理",
-	shutdown: "世界管理",
-	chunkreset: "世界管理",
-	regionreset: "世界管理",
-	rendermap: "世界管理",
-	generatemap: "世界管理",
-	visitmap: "世界管理",
-	agemap: "世界管理",
-	expiryinfo: "世界管理",
-	repairchunkdensity: "世界管理",
-	chunkcache: "世界管理",
-	chunkobserver: "世界管理",
-	showchunkdata: "世界管理",
-	resetallstats: "世界管理",
-	exportcurrentconfigs: "世界管理",
-	exportprefab: "世界管理",
-	smoothpoi: "世界管理",
-	smoothworldall: "世界管理",
-	prefab: "世界管理",
-	prefabeditor: "世界管理",
-	prefabupdater: "世界管理",
-	placeblockrotations: "世界管理",
-	placeblockshapes: "世界管理",
-	pois: "世界管理",
-	poiwaypoints: "世界管理",
-	tppoi: "世界管理",
-	teleportpoirelative: "世界管理",
-	trees: "世界管理",
-	mapdata: "世界管理",
-	listents: "实体控制",
-	spawnentity: "实体控制",
-	spawnentityat: "实体控制",
-	spawnwanderinghorde: "实体控制",
-	spawnscouts: "实体控制",
-	spawnairdrop: "实体控制",
-	spawnsupplycrate: "实体控制",
-	shownexthordetime: "实体控制",
-	bents: "实体控制",
-	sdcs: "实体控制",
-	lock: "AI 与 Director",
-	buff: "玩家状态",
-	buffplayer: "玩家状态",
-	debuff: "玩家状态",
-	debuffplayer: "玩家状态",
-	giveself: "玩家状态",
-	giveselfxp: "玩家状态",
-	givexp: "玩家状态",
-	give: "玩家状态",
-	givequest: "玩家状态",
-	removequest: "玩家状态",
-	gamestage: "玩家状态",
-	starve: "玩家状态",
-	thirsty: "玩家状态",
-	exhausted: "玩家状态",
-	sleep: "玩家状态",
-	spectator: "玩家状态",
-	automove: "玩家状态",
-	calibrate: "玩家状态",
-	fov: "视觉与渲染",
-	camera: "视觉与渲染",
-	creativemenu: "玩家状态",
-	debugmenu: "调试与性能",
-	debugpanels: "调试与性能",
-	debugshot: "调试与性能",
-	show: "视觉与渲染",
-	showalbedo: "视觉与渲染",
-	shownormals: "视觉与渲染",
-	showspecular: "视觉与渲染",
-	showswings: "视觉与渲染",
-	showhits: "视觉与渲染",
-	showtriggers: "视觉与渲染",
-	togglelm: "视觉与渲染",
-	ScreenEffect: "视觉与渲染",
-	spawnscreen: "玩家状态",
-	switchview: "视觉与渲染",
-	squarespiral: "玩家状态",
-	playervisitmap: "世界管理",
-	getgamepref: "游戏设置",
-	setgamepref: "游戏设置",
-	getgamestat: "游戏设置",
-	setgamestat: "游戏设置",
-	gettime: "游戏设置",
-	settime: "游戏设置",
-	settempunit: "游戏设置",
-	setwatervalue: "游戏设置",
-	settargetfps: "游戏设置",
-	getoptions: "游戏设置",
-	getlogpath: "游戏设置",
-	config: "游戏设置",
-	cvar: "游戏设置",
-	setcvar: "游戏设置",
-	weather: "游戏设置",
-	weathersurvival: "游戏设置",
-	newweathersurvival: "游戏设置",
-	debugweather: "游戏设置",
-	spectrum: "游戏设置",
-	ForceEventDate: "游戏设置",
-	mem: "调试与性能",
-	memcl: "调试与性能",
-	listthreads: "调试与性能",
-	loggamestate: "调试与性能",
-	loglevel: "调试与性能",
-	clear: "调试与性能",
-	memprofile: "调试与性能",
-	profiler: "调试与性能",
-	profiling: "调试与性能",
-	profilenetwork: "调试与性能",
-	meshdatamanager: "调试与性能",
-	exception: "调试与性能",
-	testloop: "调试与性能",
-	unittest: "调试与性能",
-	SystemInfo: "调试与性能",
-	occlusion: "调试与性能",
-	testoccreport: "调试与性能",
-	openiddebug: "调试与性能",
-	say: "通信",
-	help: "通信",
-	version: "通信",
-	versionui: "通信",
-	listitems: "查询与列表",
-	listdlc: "查询与列表",
-	listgameobjects: "查询与列表",
-	listpes: "查询与列表",
-	ai: "AI 与 Director",
-	aiddebug: "AI 与 Director",
-	utilityai: "AI 与 Director",
-	actiondelay: "AI 与 Director",
-	adjustmarkup: "AI 与 Director",
-	dialog: "AI 与 Director",
-	sleeper: "AI 与 Director",
-	enablerendering: "视觉与渲染",
-	showClouds: "视觉与渲染",
-	lights: "视觉与渲染",
-	gfx: "视觉与渲染",
-	graph: "视觉与渲染",
-	networkclient: "网络",
-	networkserver: "网络",
-	audio: "音频",
-	dms: "音频",
-	mumblepositionalaudio: "音频",
-	dynamicmesh: "动态网格",
-	dynamicmeshdebug: "动态网格",
-	dynamicproperties: "动态网格",
-	ReloadSCore: "SCore / Mod",
-	weaponsway: "SCore / Mod",
-	gears: "SCore / Mod",
-	quartz: "SCore / Mod",
-	fireclear: "SCore / Mod",
-	bsclearcache: "BeyondStorage",
-	bshelp: "BeyondStorage",
-	bsreloadconfig: "BeyondStorage",
-	bssetconfig: "BeyondStorage",
-	bsshowconfig: "BeyondStorage",
-	discord: "Discord / Twitch",
-	twitch: "Discord / Twitch",
-	twitchadmin: "Discord / Twitch",
-	AdminSpeed: "其他",
-	AccDecay: "其他",
-	challenges: "其他",
-	damagereset: "其他",
-	decomgr: "其他",
-	invalidatecaches: "其他",
-	maivd: "其他",
-	na: "其他",
-	pirs: "其他",
-	plc: "其他",
-	stab: "其他",
-	tcs: "其他",
-	tls: "其他",
-	traderarea: "其他",
-	transformdebug: "其他",
-	floatingorigin: "其他",
-	xui: "其他",
-	uioptions: "其他",
-	reloadentityclasses: "其他",
-	reloadlog: "其他",
-	wsmats: "其他",
-	search: "查询与列表",
-	output: "查询与列表",
-	outputdetailed: "查询与列表",
-	nwzbotblockfill: "NaiwaziBot",
-	nwzbotremoveentity: "NaiwaziBot",
-	nwzbot_test: "NaiwaziBot",
-};
-
-const CATEGORY_LABELS: Record<string, string> = {
-	玩家管理: "玩家管理",
-	权限管理: "权限管理",
-	世界管理: "世界管理",
-	实体控制: "实体控制",
-	玩家状态: "玩家状态",
-	游戏设置: "游戏设置",
-	调试与性能: "调试与性能",
-	通信: "通信",
-	查询与列表: "查询与列表",
-	"AI 与 Director": "AI 与 Director",
-	视觉与渲染: "视觉与渲染",
-	音频: "音频",
-	网络: "网络",
-	动态网格: "动态网格",
-	"SCore / Mod": "SCore / Mod",
+const CATEGORY_TRANSLATIONS: Record<string, string> = {
+	"Player Management": "玩家管理",
+	"Permission & Admin": "权限管理",
+	"World Management": "世界管理",
+	"Entity Control": "实体控制",
+	"Player State": "玩家状态",
+	"Game Settings": "游戏设置",
+	"Debug & Performance": "调试与性能",
+	Communication: "通信",
+	"Lists & Lookup": "查询与列表",
+	"AI & Director": "AI 与 Director",
+	"Rendering & Visuals": "视觉与渲染",
+	Network: "网络",
+	Audio: "音频",
+	"Dynamic Mesh": "动态网格",
+	"SCore / Utility Mods": "SCore / Mod",
 	BeyondStorage: "BeyondStorage",
 	"Discord / Twitch": "Discord / Twitch",
-	NaiwaziBot: "NaiwaziBot",
-	其他: "其他",
+	"Misc Server": "其他",
+	"Search / Help Utilities": "查询与列表",
+	"NaiwaziBot / Custom Mod": "NaiwaziBot",
 };
+
+const CATEGORY_LABELS: Record<string, string> = Object.fromEntries(
+	Object.values(CATEGORY_TRANSLATIONS).map((label) => [label, label]),
+);
 
 const commandSearchInput = document.getElementById(
 	"command-search",
@@ -1163,7 +1340,7 @@ const commandEntries = Object.entries(TELNET_COMMANDS).map(([name, meta]) => ({
 	name,
 	usage: meta.usage,
 	minLevel: meta.minLevel,
-	category: COMMAND_CATEGORIES[name] ?? "其他",
+	category: CATEGORY_TRANSLATIONS[meta.category] ?? meta.category,
 }));
 
 function getCategoryDisplayName(category: string): string {

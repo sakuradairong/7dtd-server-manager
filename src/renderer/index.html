@@ -513,11 +513,87 @@
               <button id="refresh-players" class="btn-primary">刷新玩家</button>
             </div>
 
+            <div class="card players-toolbar-card">
+              <div class="players-toolbar">
+                <div class="command-filter-row player-toolbar-row">
+                  <input
+                    type="search"
+                    id="player-search"
+                    placeholder="搜索名称或ID..."
+                    autocomplete="off"
+                  />
+                  <select id="player-sort">
+                    <option value="">默认</option>
+                    <option value="name-asc">名称升序</option>
+                    <option value="name-desc">名称降序</option>
+                    <option value="level-asc">等级升序</option>
+                    <option value="level-desc">等级降序</option>
+                    <option value="ping-asc">Ping升序</option>
+                    <option value="ping-desc">Ping降序</option>
+                  </select>
+                  <label class="select-all-label" for="player-select-all">
+                    <input type="checkbox" id="player-select-all" />
+                    <span>全选</span>
+                  </label>
+                  <span id="player-selection-count" class="selection-count">
+                    已选择 0 人
+                  </span>
+                </div>
+                <div class="batch-actions">
+                  <button
+                    type="button"
+                    class="btn-secondary batch-action-btn"
+                    data-batch-action="kick"
+                  >
+                    踢出
+                  </button>
+                  <button
+                    type="button"
+                    class="btn-secondary batch-action-btn"
+                    data-batch-action="ban"
+                  >
+                    封禁
+                  </button>
+                  <button
+                    type="button"
+                    class="btn-secondary batch-action-btn"
+                    data-batch-action="sayplayer"
+                  >
+                    私聊
+                  </button>
+                  <button
+                    type="button"
+                    class="btn-secondary batch-action-btn"
+                    data-batch-action="give-item"
+                  >
+                    发送物品
+                  </button>
+                  <button
+                    type="button"
+                    class="btn-secondary batch-action-btn"
+                    data-batch-action="give-xp"
+                  >
+                    给予经验
+                  </button>
+                  <button
+                    type="button"
+                    class="btn-secondary batch-action-btn"
+                    data-batch-action="teleport"
+                  >
+                    传送
+                  </button>
+                </div>
+              </div>
+            </div>
+
             <div class="card">
               <div class="table-wrap">
                 <table id="players-table">
                   <thead>
                     <tr>
+                      <th class="player-checkbox-cell">
+                        <span class="sr-only">选择</span>
+                      </th>
                       <th>ID</th>
                       <th>名称</th>
                       <th>等级</th>
@@ -529,7 +605,7 @@
                   </thead>
                   <tbody>
                     <tr class="empty-row">
-                      <td colspan="7">未获取玩家数据</td>
+                      <td colspan="8">未获取玩家数据</td>
                     </tr>
                   </tbody>
                 </table>
@@ -640,6 +716,13 @@
                   选择地图目录
                 </button>
                 <div id="map-dir-path" class="map-dir-path">未选择目录</div>
+                <input
+                  type="search"
+                  id="map-file-filter"
+                  class="map-file-filter"
+                  placeholder="搜索地图文件..."
+                  autocomplete="off"
+                />
                 <div id="map-file-list" class="map-file-list"></div>
               </div>
 
@@ -648,7 +731,33 @@
                   <span class="card-icon">🗺️</span>
                   <div>
                     <h3>地图预览</h3>
-                    <p>点击左侧文件查看地图</p>
+                    <p>滚轮缩放，拖拽平移，点击打开原图</p>
+                  </div>
+                  <div class="map-preview-controls">
+                    <button
+                      type="button"
+                      id="map-zoom-out"
+                      class="btn-secondary map-zoom-btn"
+                      title="缩小"
+                      aria-label="缩小">
+                      −
+                    </button>
+                    <button
+                      type="button"
+                      id="map-zoom-reset"
+                      class="btn-secondary map-zoom-btn"
+                      title="适应屏幕"
+                      aria-label="适应屏幕">
+                      ⟲
+                    </button>
+                    <button
+                      type="button"
+                      id="map-zoom-in"
+                      class="btn-secondary map-zoom-btn"
+                      title="放大"
+                      aria-label="放大">
+                      +
+                    </button>
                   </div>
                 </div>
                 <div id="map-preview" class="map-preview">
@@ -677,7 +786,47 @@
               </div>
             </div>
 
+            <div class="card log-filter-card">
+              <div class="log-filter-toolbar">
+                <input
+                  type="search"
+                  id="log-search"
+                  placeholder="搜索日志内容..."
+                  autocomplete="off"
+                />
+                <div class="log-level-filters" role="group" aria-label="日志级别筛选">
+                  <label class="log-level-toggle info">
+                    <input type="checkbox" value="info" checked />
+                    <span>信息</span>
+                  </label>
+                  <label class="log-level-toggle command">
+                    <input type="checkbox" value="command" checked />
+                    <span>命令</span>
+                  </label>
+                  <label class="log-level-toggle response">
+                    <input type="checkbox" value="response" checked />
+                    <span>响应</span>
+                  </label>
+                  <label class="log-level-toggle error">
+                    <input type="checkbox" value="error" checked />
+                    <span>错误</span>
+                  </label>
+                  <label class="log-level-toggle event">
+                    <input type="checkbox" value="event" checked />
+                    <span>事件</span>
+                  </label>
+                </div>
+                <button id="export-log" class="btn-secondary">导出日志</button>
+              </div>
+            </div>
+
             <div class="card log-card">
+              <div class="log-scroll-lock" id="log-scroll-lock" hidden>
+                <span>已暂停自动滚动</span>
+                <button type="button" id="resume-scroll" class="btn-primary">
+                  恢复自动滚动
+                </button>
+              </div>
               <pre id="log-output"></pre>
             </div>
           </section>
@@ -690,7 +839,7 @@
         <div class="modal-header">
           <h3 id="modal-title">命令结果</h3>
           <button type="button" id="modal-close" class="modal-close" aria-label="关闭">
-            &times;
+            ×
           </button>
         </div>
         <div class="modal-body">
@@ -699,6 +848,25 @@
         <div class="modal-footer">
           <button type="button" id="modal-copy" class="btn-secondary">复制结果</button>
           <button type="button" id="modal-close-btn" class="btn-primary">关闭</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="prompt-modal" class="modal-overlay" aria-hidden="true">
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="prompt-modal-title">
+        <div class="modal-header">
+          <h3 id="prompt-modal-title">输入</h3>
+          <button type="button" id="prompt-modal-close" class="modal-close" aria-label="关闭">
+            ×
+          </button>
+        </div>
+        <div class="modal-body">
+          <p id="prompt-modal-message"></p>
+          <input type="text" id="prompt-modal-input" class="prompt-input" autocomplete="off" />
+        </div>
+        <div class="modal-footer">
+          <button type="button" id="prompt-modal-cancel" class="btn-secondary">取消</button>
+          <button type="button" id="prompt-modal-confirm" class="btn-primary">确认</button>
         </div>
       </div>
     </div>

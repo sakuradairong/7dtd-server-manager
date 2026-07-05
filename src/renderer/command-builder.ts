@@ -9,7 +9,7 @@ export function escapeTelnetArgument(text: string): string {
 	return text.replace(/"/g, '""');
 }
 
-function quoteTelnetArgument(text: string): string {
+export function quoteTelnetArgument(text: string): string {
 	return `"${escapeTelnetArgument(text)}"`;
 }
 
