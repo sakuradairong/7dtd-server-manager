@@ -169,6 +169,7 @@ struct PlayerInfo {
 #[serde(rename_all = "camelCase")]
 struct EntityInfo {
     entity_id: i64,
+    #[serde(rename = "type")]
     entity_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     name: Option<String>,
@@ -1766,6 +1767,38 @@ mod tests {
         let saved = fs::read_to_string(&path).expect("read saved config");
         let _ = fs::remove_file(&path);
         assert!(saved.contains(r#"name="ServerName" value="server$$name$1${missing}""#));
+    }
+
+    #[test]
+    fn saves_config_updates_escapes_xml_special_characters() {
+        let path = std::env::temp_dir().join(format!(
+            "7dtd-tauri-config-xml-escape-test-{}.xml",
+            std::process::id()
+        ));
+        fs::write(
+            &path,
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<ServerSettings>
+  <property name="ServerName" value="Old"/>
+</ServerSettings>
+"#,
+        )
+        .expect("write test config");
+
+        save_config_updates(
+            path.to_str().expect("utf8 temp path"),
+            &[ServerConfigUpdate {
+                name: "ServerName".to_string(),
+                value: r#"A "quoted" <tag> value & more"#.to_string(),
+            }],
+        )
+        .expect("save config updates");
+
+        let saved = fs::read_to_string(&path).expect("read saved config");
+        let _ = fs::remove_file(&path);
+        assert!(saved.contains(
+            r#"name="ServerName" value="A &quot;quoted&quot; &lt;tag&gt; value &amp; more""#
+        ));
     }
 
     #[test]
