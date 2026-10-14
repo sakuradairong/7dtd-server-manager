@@ -17,7 +17,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 base64 = "0.22"
-opener = "0.7"
+opener = "0.8"
 quick-xml = { version = "0.37", features = ["serialize"] }
 regex = "1"
 rfd = "0.15"
